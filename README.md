@@ -1,6 +1,6 @@
 # Nepali Date Taskbar Widget
 
-A lightweight, standalone C++ desktop widget for Windows that beautifully displays the current Nepali (Bikram Sambat) date directly above your taskbar.
+A lightweight, standalone C++ desktop widget for Windows that beautifully displays the current Nepali (Bikram Sambat) date, specially design to view it directly above your taskbar.
 
 ## 🚀 Features
 - **100% Standalone:** No Python, no pip packages, and no dependencies required. Just run the `.exe`!
