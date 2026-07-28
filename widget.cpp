@@ -304,7 +304,7 @@ void AddTrayIcon(HWND hWnd) {
     g_nid.uID = 1;
     g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     g_nid.uCallbackMessage = WM_TRAYICON;
-    g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION); // Default icon, can be changed later
+    g_nid.hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(1)); // Custom embedded logo
     wcscpy_s(g_nid.szTip, L"Nepali Date Widget");
     Shell_NotifyIconW(NIM_ADD, &g_nid);
 }
@@ -470,6 +470,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = L"NepaliTaskbarWidgetClass";
+    wc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(1));
+    wc.hIconSm = LoadIcon(hInstance, MAKEINTRESOURCE(1));
     ATOM atom = RegisterClassEx(&wc);
 
     HWND hTaskbar = FindWindow(L"Shell_TrayWnd", NULL);
