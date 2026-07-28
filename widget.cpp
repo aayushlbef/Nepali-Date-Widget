@@ -23,9 +23,9 @@ bool g_setupMode = true;
 int g_xPos = 500, g_yPos = 1000;
 POINT g_dragStart = { 0, 0 };
 bool g_isDragging = false;
+bool g_isMenuOpen = false;
 
-std::wstring g_cachedDateStr = L"";
-DWORD g_lastDateFetch = 0;
+// DPI scale factor (1.0 = 96 DPI, 1.25 = 120 DPI, 1.5 = 144 DPI, etc.)
 
 // DPI scale factor (1.0 = 96 DPI, 1.25 = 120 DPI, 1.5 = 144 DPI, etc.)
 float g_dpiScale = 1.0f;
@@ -127,80 +127,80 @@ void SetStartupEnabled(bool enable) {
     RegCloseKey(hKey);
 }
 
-// ── Silent Subprocess Execution ─────────────────────────────────────────────
-std::string ExecCmdSilent(const char* cmd) {
-    SECURITY_ATTRIBUTES sa;
-    sa.nLength = sizeof(sa);
-    sa.bInheritHandle = TRUE;
-    sa.lpSecurityDescriptor = NULL;
+// ── Silent Subprocess Execution (Removed) ───────────────────────────────────
 
-    HANDLE hRead, hWrite;
-    if (!CreatePipe(&hRead, &hWrite, &sa, 0)) return "";
-    SetHandleInformation(hRead, HANDLE_FLAG_INHERIT, 0);
+// ── Nepali Date Calculator (Pure C++) ────────────────────────────────────────
+#include "bs_data.h"
 
-    STARTUPINFOA si;
-    ZeroMemory(&si, sizeof(si));
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-    si.hStdOutput = hWrite;
-    si.hStdError = hWrite;
-    si.wShowWindow = SW_HIDE;
-
-    PROCESS_INFORMATION pi;
-    ZeroMemory(&pi, sizeof(pi));
-
-    std::string result = "";
-    char cmdCopy[512];
-    snprintf(cmdCopy, sizeof(cmdCopy), "%s", cmd);
-    
-    if (CreateProcessA(NULL, cmdCopy, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-        CloseHandle(hWrite);
-        
-        char buffer[128];
-        DWORD bytesRead;
-        while (ReadFile(hRead, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0) {
-            buffer[bytesRead] = '\0';
-            result += buffer;
-        }
-        
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
-    } else {
-        CloseHandle(hWrite);
-    }
-    CloseHandle(hRead);
-    return result;
-}
-
-// ── Nepali Date Calculator (Calls Python for Accuracy) ───────────────────────
 std::wstring GetNepaliDateString() {
-    DWORD now = GetTickCount();
-    // Refresh every 1 hour (3600000 ms) or if empty/error and 10 seconds have passed to prevent fast looping
-    if (g_cachedDateStr.empty() || g_cachedDateStr == L"Date Error" || (now - g_lastDateFetch > 3600000)) {
-        // Prevent aggressive looping if Python fails
-        if (g_cachedDateStr == L"Date Error" && (now - g_lastDateFetch < 10000)) {
-            return g_cachedDateStr;
-        }
-        
-        g_lastDateFetch = now;
-        
-        std::string result = ExecCmdSilent("py -c \"import nepali_datetime; nd=nepali_datetime.date.today(); print(f'{nd.year} / {nd.month:02d} / {nd.day:02d}')\"");
-        
-        while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
-            result.pop_back();
-        }
-        
-        if (!result.empty()) {
-            int len = MultiByteToWideChar(CP_UTF8, 0, result.c_str(), -1, NULL, 0);
-            std::wstring wstr(len, 0);
-            MultiByteToWideChar(CP_UTF8, 0, result.c_str(), -1, &wstr[0], len);
-            if (!wstr.empty() && wstr.back() == L'\0') wstr.pop_back();
-            g_cachedDateStr = wstr;
+    static WORD s_lastDay = 0, s_lastMonth = 0, s_lastYear = 0;
+    static std::wstring s_cachedDateStr = L"";
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    
+    // Ultimate minimal resource check: only recalculate if the day has changed!
+    if (st.wDay == s_lastDay && st.wMonth == s_lastMonth && st.wYear == s_lastYear && !s_cachedDateStr.empty()) {
+        return s_cachedDateStr;
+    }
+    
+    s_lastDay = st.wDay;
+    s_lastMonth = st.wMonth;
+    s_lastYear = st.wYear;
+    
+    // Calculate days since 1918-04-13 (BS 1975-01-01)
+    FILETIME ftNow, ftRef;
+    SystemTimeToFileTime(&st, &ftNow);
+    
+    SYSTEMTIME stRef = {0};
+    stRef.wYear = 1918;
+    stRef.wMonth = 4;
+    stRef.wDay = 13;
+    SystemTimeToFileTime(&stRef, &ftRef);
+    
+    ULARGE_INTEGER uNow, uRef;
+    uNow.LowPart = ftNow.dwLowDateTime;
+    uNow.HighPart = ftNow.dwHighDateTime;
+    uRef.LowPart = ftRef.dwLowDateTime;
+    uRef.HighPart = ftRef.dwHighDateTime;
+    
+    // Number of 100-nanosecond intervals per day = 10,000,000 * 60 * 60 * 24 = 864,000,000,000
+    long long diff = uNow.QuadPart - uRef.QuadPart;
+    int days = (int)(diff / 864000000000LL);
+    
+    if (days < 0) {
+        return L"Date Error";
+    }
+
+    int bs_year = 1975;
+    int bs_month = 1;
+    int bs_day = 1;
+    
+    while (bs_year <= 2100) {
+        int days_in_month = bs_month_days[bs_year - 1975][bs_month - 1];
+        if (days >= days_in_month) {
+            days -= days_in_month;
+            bs_month++;
+            if (bs_month > 12) {
+                bs_month = 1;
+                bs_year++;
+            }
         } else {
-            g_cachedDateStr = L"Date Error";
+            break;
         }
     }
-    return g_cachedDateStr;
+    bs_day += days;
+    
+    if (bs_year > 2100) {
+        s_cachedDateStr = L"Date Error";
+        return s_cachedDateStr;
+    }
+    
+    wchar_t buffer[64];
+    swprintf(buffer, 64, L"%d / %02d / %02d", bs_year, bs_month, bs_day);
+    s_cachedDateStr = std::wstring(buffer);
+    
+    return s_cachedDateStr;
 }
 
 // ── Custom Drawing Engine (Per-Pixel Alpha) ──────────────────────────────────
@@ -294,10 +294,59 @@ void RenderWidget(HWND hWnd) {
     ReleaseDC(NULL, hdcScreen);
 }
 
+// ── System Tray Icon Setup ───────────────────────────────────────────────────
+#define WM_TRAYICON (WM_USER + 1)
+NOTIFYICONDATAW g_nid = {};
+
+void AddTrayIcon(HWND hWnd) {
+    g_nid.cbSize = sizeof(NOTIFYICONDATAW);
+    g_nid.hWnd = hWnd;
+    g_nid.uID = 1;
+    g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    g_nid.uCallbackMessage = WM_TRAYICON;
+    g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION); // Default icon, can be changed later
+    wcscpy_s(g_nid.szTip, L"Nepali Date Widget");
+    Shell_NotifyIconW(NIM_ADD, &g_nid);
+}
+
+void RemoveTrayIcon() {
+    Shell_NotifyIconW(NIM_DELETE, &g_nid);
+}
+
+void ShowContextMenu(HWND hWnd, POINT pt) {
+    HMENU hMenu = CreatePopupMenu();
+    AppendMenu(hMenu, MF_STRING, 1, g_setupMode ? L"Lock Position & Make Transparent" : L"Adjust Position");
+
+    bool startupOn = IsStartupEnabled();
+    AppendMenu(hMenu, MF_STRING | (startupOn ? MF_CHECKED : 0), 3, L"Run at Startup");
+
+    AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
+    AppendMenu(hMenu, MF_STRING, 2, L"Exit");
+
+    SetForegroundWindow(hWnd);
+    g_isMenuOpen = true;
+    int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hWnd, NULL);
+    g_isMenuOpen = false;
+    // Post a dummy message to ensure the menu dismisses properly when clicking outside
+    PostMessage(hWnd, WM_NULL, 0, 0);
+    DestroyMenu(hMenu);
+
+    if (cmd == 1) {
+        g_setupMode = !g_setupMode;
+        SaveConfig();
+        RenderWidget(hWnd);
+    } else if (cmd == 2) {
+        PostQuitMessage(0);
+    } else if (cmd == 3) {
+        SetStartupEnabled(!startupOn);
+    }
+}
+
 // ── Win32 Message Loop Engine ────────────────────────────────────────────────
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE:
+        AddTrayIcon(hWnd);
         SetTimer(hWnd, 1, 1000, NULL);   // Render timer
         SetTimer(hWnd, 2, 250, NULL);    // Z-order enforcement timer
         break;
@@ -316,8 +365,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 ShowWindow(hWnd, SW_SHOWNOACTIVATE);
                 RenderWidget(hWnd);
             }
-            // Re-assert TOPMOST (only when visible)
-            if (!g_hiddenForFullscreen) {
+            // Re-assert TOPMOST (only when visible and menu is closed)
+            if (!g_hiddenForFullscreen && !g_isMenuOpen) {
                 SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
                              SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
             }
@@ -364,34 +413,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         break;
 
     case WM_RBUTTONUP: {
-        HMENU hMenu = CreatePopupMenu();
-        AppendMenu(hMenu, MF_STRING, 1, g_setupMode ? L"Lock Position & Make Transparent" : L"Adjust Position");
-
-        bool startupOn = IsStartupEnabled();
-        AppendMenu(hMenu, MF_STRING | (startupOn ? MF_CHECKED : 0), 3, L"Run at Startup");
-
-        AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
-        AppendMenu(hMenu, MF_STRING, 2, L"Exit");
-
         POINT pt;
         GetCursorPos(&pt);
-        SetForegroundWindow(hWnd);
-        int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hWnd, NULL);
-        DestroyMenu(hMenu);
-
-        if (cmd == 1) {
-            g_setupMode = !g_setupMode;
-            SaveConfig();
-            RenderWidget(hWnd);
-        } else if (cmd == 2) {
-            PostQuitMessage(0);
-        } else if (cmd == 3) {
-            SetStartupEnabled(!startupOn);
-        }
+        ShowContextMenu(hWnd, pt);
         break;
     }
 
+    case WM_TRAYICON:
+        if (lParam == WM_RBUTTONUP || lParam == WM_LBUTTONUP) {
+            POINT pt;
+            GetCursorPos(&pt);
+            ShowContextMenu(hWnd, pt);
+        }
+        break;
+
     case WM_DESTROY:
+        RemoveTrayIcon();
         PostQuitMessage(0);
         break;
 
