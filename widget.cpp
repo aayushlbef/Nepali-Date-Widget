@@ -369,6 +369,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (!g_hiddenForFullscreen && !g_isMenuOpen) {
                 SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
                              SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+                
+                // Fast Startup fix: dynamically repair taskbar parent relationship
+                HWND hTaskbar = FindWindow(L"Shell_TrayWnd", NULL);
+                if (hTaskbar && hTaskbar != (HWND)GetWindowLongPtr(hWnd, GWLP_HWNDPARENT)) {
+                    SetWindowLongPtr(hWnd, GWLP_HWNDPARENT, (LONG_PTR)hTaskbar);
+                }
             }
         }
         break;
