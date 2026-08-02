@@ -242,38 +242,72 @@ void RenderWidget(HWND hWnd) {
 
     // 1. Render Flag (all coordinates scaled by DPI)
     REAL cx = 10.0f * s, cy = rawHeight / 2.0f, h = 24.0f * s;
-    REAL bd = 2.0f * s;
-    REAL h1 = h * 0.52f, h2 = h - h1;
-    REAL w1 = h1 * 0.85f, w2 = h2 * 1.12f;
-    REAL top = cy - h / 2.0f, mid = top + h1;
+    REAL top = cy - h / 2.0f;
 
     SolidBrush blueBrush(Color(255, 0, 56, 147));
     SolidBrush crimsonBrush(Color(255, 220, 20, 60));
     SolidBrush whiteBrush(Color(255, 255, 255, 255));
 
-    // Blue Border Triangles
-    PointF t1_out[] = { PointF(cx, top), PointF(cx, mid + bd), PointF(cx + w1 + bd, mid) };
-    PointF t2_out[] = { PointF(cx, mid - bd), PointF(cx, top + h), PointF(cx + w2 + bd, top + h) };
-    graphics.FillPolygon(&blueBrush, t1_out, 3);
-    graphics.FillPolygon(&blueBrush, t2_out, 3);
+    // Outer Blue Boundary (Unified 5-Point Polygon)
+    // Calculated using accurate Constitutional proportions where Width ≈ 0.822 * Height
+    PointF polyOuter[5] = {
+        PointF(cx, top),
+        PointF(cx + 0.765f * h, top + 0.543f * h),
+        PointF(cx + 0.266f * h, top + 0.543f * h),
+        PointF(cx + 0.822f * h, top + h),
+        PointF(cx, top + h)
+    };
+    graphics.FillPolygon(&blueBrush, polyOuter, 5);
 
-    // Crimson Inner Triangles
-    PointF t1_in[] = { PointF(cx + bd, top + bd), PointF(cx + bd, mid), PointF(cx + w1, mid) };
-    PointF t2_in[] = { PointF(cx + bd, mid), PointF(cx + bd, top + h - bd), PointF(cx + w2, top + h - bd) };
-    graphics.FillPolygon(&crimsonBrush, t1_in, 3);
-    graphics.FillPolygon(&crimsonBrush, t2_in, 3);
+    // Inner Crimson Boundary (Unified 5-Point Polygon)
+    // Inset mathematically to maintain a uniform blue border thickness
+    PointF polyInner[5] = {
+        PointF(cx + 0.042f * h, top + 0.073f * h),
+        PointF(cx + 0.674f * h, top + 0.501f * h),
+        PointF(cx + 0.232f * h, top + 0.501f * h),
+        PointF(cx + 0.715f * h, top + 0.958f * h),
+        PointF(cx + 0.042f * h, top + 0.958f * h)
+    };
+    graphics.FillPolygon(&crimsonBrush, polyInner, 5);
 
-    // Sun & Moon Symbol
-    REAL symbolSize = 4.0f * s;
-    graphics.FillEllipse(&whiteBrush, cx + bd + w1 * 0.38f, top + bd + h1 * 0.3f, symbolSize, symbolSize);
-    graphics.FillEllipse(&whiteBrush, cx + bd + w2 * 0.36f, mid + h2 * 0.4f, symbolSize, symbolSize);
+    // Sun & Moon Symbols
+    
+    // --- TOP SECTION: Crescent Moon ---
+    REAL moonOuterDiam = 0.20f * h;
+    REAL moonOuterX = cx + 0.22f * h - (moonOuterDiam / 2.0f);
+    REAL moonOuterY = top + 0.32f * h - (moonOuterDiam / 2.0f);
+    
+    // Draw the main white base for the moon
+    graphics.FillEllipse(&whiteBrush, moonOuterX, moonOuterY, moonOuterDiam, moonOuterDiam);
+    
+    // Overlap with a crimson circle to carve out the crescent shape
+    REAL moonInnerDiam = 0.18f * h;
+    REAL moonInnerX = moonOuterX + 0.01f * h;
+    REAL moonInnerY = moonOuterY - 0.04f * h;
+    graphics.FillEllipse(&crimsonBrush, moonInnerX, moonInnerY, moonInnerDiam, moonInnerDiam);
+    
+    // Draw the smaller sun (star) resting inside the lower curve of the crescent
+    REAL moonStarDiam = 0.09f * h;
+    REAL moonStarX = cx + 0.22f * h - (moonStarDiam / 2.0f);
+    REAL moonStarY = top + 0.33f * h - (moonStarDiam / 2.0f);
+    graphics.FillEllipse(&whiteBrush, moonStarX, moonStarY, moonStarDiam, moonStarDiam);
+
+    // --- BOTTOM SECTION: Sun ---
+    // At this scale, a clean geometric circle best represents the core of the 12-pointed sun
+    REAL sunDiam = 0.18f * h;
+    REAL sunX = cx + 0.26f * h - (sunDiam / 2.0f);
+    REAL sunY = top + 0.73f * h - (sunDiam / 2.0f);
+    graphics.FillEllipse(&whiteBrush, sunX, sunY, sunDiam, sunDiam);
 
     // 2. Render Text (DPI-scaled font)
     FontFamily fontFamily(L"Segoe UI");
     Font font(&fontFamily, 12.0f * s, FontStyleBold, UnitPixel);
     std::wstring dateStr = GetNepaliDateString();
 
-    RectF textRect(cx + (w1 > w2 ? w1 : w2) + 12.0f * s, 0.0f, (REAL)rawWidth - 50.0f * s, (REAL)rawHeight);
+    // Adjust text rectangle to account for the new unified flag width
+    REAL flagWidth = 0.822f * h;
+    RectF textRect(cx + flagWidth + 12.0f * s, 0.0f, (REAL)rawWidth - (cx + flagWidth + 12.0f * s), (REAL)rawHeight);
+    
     StringFormat format;
     format.SetAlignment(StringAlignmentNear);
     format.SetLineAlignment(StringAlignmentCenter);
@@ -446,6 +480,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
 // ── Application Entrypoint ───────────────────────────────────────────────────
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    HANDLE hMutex = CreateMutex(NULL, TRUE, L"NepaliDateWidget_Mutex_Unique_App_ID");
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        MessageBox(NULL, L"The application is already running.", L"Nepali Date Widget", MB_OK | MB_ICONINFORMATION);
+        CloseHandle(hMutex);
+        return 0;
+    }
 
     // ── DPI Awareness: Render at native resolution, no bitmap scaling ────
     // This is the #1 fix for blurry text and flag. Without this, Windows
@@ -527,5 +567,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     GdiplusShutdown(g_gdiplusToken);
+
+    if (hMutex) {
+        ReleaseMutex(hMutex);
+        CloseHandle(hMutex);
+    }
+    
     return 0;
 }
