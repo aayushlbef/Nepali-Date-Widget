@@ -3,6 +3,7 @@
 #endif
 
 #include <windows.h>
+#include <winhttp.h>
 #include <gdiplus.h>
 #include <ctime>
 #include <string>
@@ -16,6 +17,14 @@
 
 using namespace Gdiplus;
 
+// ── App Version ──────────────────────────────────────────────────────────────
+#define APP_VERSION L"3.3.0"
+#define GITHUB_REPO_API L"/repos/aayushlbef/Nepali-Date-Widget/releases/latest"
+#define GITHUB_RELEASE_URL L"https://github.com/aayushlbef/Nepali-Date-Widget/releases/tag/"
+#define WM_UPDATE_AVAILABLE (WM_USER + 2)
+#define WM_UPDATE_NOT_FOUND (WM_USER + 3)
+#define WM_UPDATE_ERROR     (WM_USER + 4)
+
 // ── Global State ─────────────────────────────────────────────────────────────
 ULONG_PTR g_gdiplusToken;
 HWND g_hWnd = NULL;
@@ -24,6 +33,7 @@ int g_xPos = 500, g_yPos = 1000;
 POINT g_dragStart = { 0, 0 };
 bool g_isDragging = false;
 bool g_isMenuOpen = false;
+bool g_showDay = true;
 
 // DPI scale factor (1.0 = 96 DPI, 1.25 = 120 DPI, 1.5 = 144 DPI, etc.)
 
@@ -31,6 +41,128 @@ bool g_isMenuOpen = false;
 float g_dpiScale = 1.0f;
 
 bool g_hiddenForFullscreen = false;
+
+// ── Theme Detection ──────────────────────────────────────────────────────────
+bool g_isLightTheme = false;   // true = Windows light theme, false = dark
+wchar_t g_latestVersion[64] = {0};  // Filled by update-check thread
+
+bool DetectWindowsTheme() {
+    // Returns true if Windows is using a light taskbar/system theme
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        DWORD value = 0, size = sizeof(DWORD), type = REG_DWORD;
+        // SystemUsesLightTheme controls the taskbar/system chrome color
+        if (RegQueryValueExW(hKey, L"SystemUsesLightTheme", NULL, &type,
+                             (LPBYTE)&value, &size) == ERROR_SUCCESS) {
+            RegCloseKey(hKey);
+            return (value != 0);
+        }
+        RegCloseKey(hKey);
+    }
+    return false;  // Default to dark theme if registry read fails
+}
+
+// ── Update Checker ───────────────────────────────────────────────────────────
+// Compare "3.3.0" vs "3.4.0" style version strings
+bool IsVersionNewer(const wchar_t* current, const wchar_t* latest) {
+    int cMaj = 0, cMin = 0, cPat = 0;
+    int lMaj = 0, lMin = 0, lPat = 0;
+    const wchar_t* c = current;
+    const wchar_t* l = latest;
+    if (*c == L'v' || *c == L'V') c++;
+    if (*l == L'v' || *l == L'V') l++;
+    swscanf(c, L"%d.%d.%d", &cMaj, &cMin, &cPat);
+    swscanf(l, L"%d.%d.%d", &lMaj, &lMin, &lPat);
+    if (lMaj != cMaj) return lMaj > cMaj;
+    if (lMin != cMin) return lMin > cMin;
+    return lPat > cPat;
+}
+
+// Minimal JSON extractor: finds "key":"value" and writes value into out[]
+bool ExtractJsonString(const char* json, const char* key, wchar_t* out, int outLen) {
+    char needle[128];
+    snprintf(needle, sizeof(needle), "\"%s\"", key);
+    const char* p = strstr(json, needle);
+    if (!p) return false;
+    p += strlen(needle);
+    while (*p == ' ' || *p == ':' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    if (*p != '"') return false;
+    p++;  // skip opening quote
+    int i = 0;
+    while (*p && *p != '"' && i < outLen - 1) {
+        out[i++] = (wchar_t)(*p++);
+    }
+    out[i] = 0;
+    return i > 0;
+}
+
+DWORD WINAPI CheckForUpdateThread(LPVOID lpParam) {
+    bool isManual = (bool)(INT_PTR)lpParam;
+
+    HINTERNET hSession = WinHttpOpen(L"NepaliDateWidget/" APP_VERSION,
+        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) {
+        if (isManual) PostMessage(g_hWnd, WM_UPDATE_ERROR, 0, 0);
+        return 0;
+    }
+
+    HINTERNET hConnect = WinHttpConnect(hSession, L"api.github.com",
+        INTERNET_DEFAULT_HTTPS_PORT, 0);
+    if (!hConnect) {
+        WinHttpCloseHandle(hSession);
+        if (isManual) PostMessage(g_hWnd, WM_UPDATE_ERROR, 0, 0);
+        return 0;
+    }
+
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", GITHUB_REPO_API,
+        NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+    if (!hRequest) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        if (isManual) PostMessage(g_hWnd, WM_UPDATE_ERROR, 0, 0);
+        return 0;
+    }
+
+    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+            WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+        !WinHttpReceiveResponse(hRequest, NULL)) {
+        WinHttpCloseHandle(hRequest);
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        if (isManual) PostMessage(g_hWnd, WM_UPDATE_ERROR, 0, 0);
+        return 0;
+    }
+
+    // Read the full response body
+    std::string response;
+    char buf[4096];
+    DWORD bytesRead = 0;
+    while (WinHttpReadData(hRequest, buf, sizeof(buf) - 1, &bytesRead) && bytesRead > 0) {
+        buf[bytesRead] = 0;
+        response += buf;
+        bytesRead = 0;
+    }
+
+    WinHttpCloseHandle(hRequest);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+
+    // Extract tag_name from the JSON response
+    wchar_t tagName[64] = {0};
+    if (ExtractJsonString(response.c_str(), "tag_name", tagName, 64)) {
+        if (IsVersionNewer(APP_VERSION, tagName)) {
+            wcscpy_s(g_latestVersion, tagName);
+            PostMessage(g_hWnd, WM_UPDATE_AVAILABLE, 0, 0);
+        } else {
+            if (isManual) PostMessage(g_hWnd, WM_UPDATE_NOT_FOUND, 0, 0);
+        }
+    } else {
+        if (isManual) PostMessage(g_hWnd, WM_UPDATE_ERROR, 0, 0);
+    }
+    return 0;
+}
 
 // ── Fullscreen App Detection ─────────────────────────────────────────────────
 // Returns true if the foreground window completely covers its monitor
@@ -77,11 +209,13 @@ void LoadConfig() {
     std::string npath(path.begin(), path.end());
     FILE* file = fopen(npath.c_str(), "r");
     if (file) {
-        int x, y, setup;
-        if (fscanf(file, "%d,%d,%d", &x, &y, &setup) == 3) {
+        int x, y, setup, showDay = 1;
+        int n = fscanf(file, "%d,%d,%d,%d", &x, &y, &setup, &showDay);
+        if (n >= 3) {
             g_xPos = x;
             g_yPos = y;
             g_setupMode = (setup != 0);
+            if (n >= 4) g_showDay = (showDay != 0);
         }
         fclose(file);
     }
@@ -92,7 +226,7 @@ void SaveConfig() {
     std::string npath(path.begin(), path.end());
     FILE* file = fopen(npath.c_str(), "w");
     if (file) {
-        fprintf(file, "%d,%d,%d", g_xPos, g_yPos, g_setupMode ? 1 : 0);
+        fprintf(file, "%d,%d,%d,%d", g_xPos, g_yPos, g_setupMode ? 1 : 0, g_showDay ? 1 : 0);
         fclose(file);
     }
 }
@@ -206,7 +340,8 @@ std::wstring GetNepaliDateString() {
 // ── Custom Drawing Engine (Per-Pixel Alpha) ──────────────────────────────────
 void RenderWidget(HWND hWnd) {
     // Use DPI-scaled dimensions for the render surface to get crisp pixels
-    int rawWidth = (int)(175 * g_dpiScale);
+    int baseWidth = g_showDay ? 190 : 155;
+    int rawWidth = (int)(baseWidth * g_dpiScale);
     int rawHeight = (int)(48 * g_dpiScale);
 
     HDC hdcScreen = GetDC(NULL);
@@ -226,7 +361,7 @@ void RenderWidget(HWND hWnd) {
 
     Graphics graphics(hdcMem);
     graphics.SetSmoothingMode(SmoothingModeHighQuality);
-    graphics.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
+    graphics.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
     graphics.SetPixelOffsetMode(PixelOffsetModeHighQuality);
     graphics.SetInterpolationMode(InterpolationModeHighQualityBicubic);
 
@@ -236,20 +371,87 @@ void RenderWidget(HWND hWnd) {
     float s = g_dpiScale;  // Shorthand for scale factor
 
     if (g_setupMode) {
-        SolidBrush bgBrush(Color(230, 31, 31, 31));
+        // Adapt background to theme so it's visible on both light and dark taskbars
+        SolidBrush bgBrush(g_isLightTheme ? Color(210, 230, 230, 230) : Color(230, 31, 31, 31));
         graphics.FillRectangle(&bgBrush, 0, 0, rawWidth, rawHeight);
     }
 
-    // 1. Render Flag (all coordinates scaled by DPI)
-    REAL cx = 10.0f * s, cy = rawHeight / 2.0f, h = 24.0f * s;
+    // Pre-calculate positions to create a tight, sequential layout: [Day] [Gap] [Flag] [Gap] [Date]
+    REAL h = 24.0f * s;
+    REAL flagWidth = 0.822f * h;
+    
+    // We will compute cx dynamically later after measuring the day string width, 
+    // but for now we set up the Y coordinates.
+    REAL cy = rawHeight / 2.0f;
     REAL top = cy - h / 2.0f;
 
+    // 1. Measure Text and Calculate Sequential Coordinates
+    FontFamily fontFamily(L"Segoe UI");
+    Font font(&fontFamily, 12.0f * s, FontStyleBold, UnitPixel);
+    std::wstring dateStr = GetNepaliDateString();
+
+    StringFormat formatNear;
+    formatNear.SetAlignment(StringAlignmentNear);
+    formatNear.SetLineAlignment(StringAlignmentCenter);
+
+    REAL gap = 12.0f * s;
+    REAL cx, dateX;
+
+    if (g_showDay) {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        const wchar_t* daysOfWeek[] = { L"Sun", L"Mon", L"Tue", L"Wed", L"Thu", L"Fri", L"Sat" };
+        const wchar_t* dayStr = daysOfWeek[st.wDayOfWeek];
+
+        // Measure day string
+        RectF dayMeasure;
+        graphics.MeasureString(dayStr, -1, &font, RectF(0,0,1000,100), &formatNear, &dayMeasure);
+
+        // Day box on the left
+        REAL boxPaddingX = 5.0f * s;
+        REAL boxWidth = dayMeasure.Width + boxPaddingX * 2.0f;
+        REAL boxHeight = h - 2.0f * s;
+        REAL boxX = 10.0f * s;
+        REAL boxY = (rawHeight - boxHeight) / 2.0f;
+
+        // Flag in the middle
+        cx = boxX + boxWidth + gap;
+        dateX = cx + flagWidth + gap;
+
+        // 2. Render Day Box
+        SolidBrush boxBrush(g_isLightTheme ? Color(25, 0, 0, 0) : Color(35, 255, 255, 255));
+        GraphicsPath path;
+        REAL r = 4.0f * s;
+        REAL d = r * 2.0f;
+        path.AddArc(boxX, boxY, d, d, 180, 90);
+        path.AddArc(boxX + boxWidth - d, boxY, d, d, 270, 90);
+        path.AddArc(boxX + boxWidth - d, boxY + boxHeight - d, d, d, 0, 90);
+        path.AddArc(boxX, boxY + boxHeight - d, d, d, 90, 90);
+        path.CloseFigure();
+        graphics.FillPath(&boxBrush, &path);
+
+        // Draw day text centered in the box
+        SolidBrush dayTextBrush(g_isLightTheme ? Color(255, 20, 20, 20) : Color(255, 255, 255, 255));
+        StringFormat formatCenter;
+        formatCenter.SetAlignment(StringAlignmentCenter);
+        formatCenter.SetLineAlignment(StringAlignmentCenter);
+        RectF dayTextRect(boxX, boxY, boxWidth, boxHeight);
+        graphics.DrawString(dayStr, -1, &font, dayTextRect, &formatCenter, &dayTextBrush);
+    } else {
+        // No day box: flag on the left, date after it
+        cx = 10.0f * s;
+        dateX = cx + flagWidth + gap;
+    }
+
+    // Use dark text on light theme, white text on dark theme
+    SolidBrush textBrush(g_isLightTheme ? Color(255, 20, 20, 20) : Color(255, 255, 255, 255));
+
+
+    // 3. Render Flag (now that cx is computed)
     SolidBrush blueBrush(Color(255, 0, 56, 147));
     SolidBrush crimsonBrush(Color(255, 220, 20, 60));
     SolidBrush whiteBrush(Color(255, 255, 255, 255));
 
-    // Outer Blue Boundary (Unified 5-Point Polygon)
-    // Calculated using accurate Constitutional proportions where Width ≈ 0.822 * Height
     PointF polyOuter[5] = {
         PointF(cx, top),
         PointF(cx + 0.765f * h, top + 0.543f * h),
@@ -259,8 +461,6 @@ void RenderWidget(HWND hWnd) {
     };
     graphics.FillPolygon(&blueBrush, polyOuter, 5);
 
-    // Inner Crimson Boundary (Unified 5-Point Polygon)
-    // Inset mathematically to maintain a uniform blue border thickness
     PointF polyInner[5] = {
         PointF(cx + 0.042f * h, top + 0.073f * h),
         PointF(cx + 0.674f * h, top + 0.501f * h),
@@ -269,50 +469,33 @@ void RenderWidget(HWND hWnd) {
         PointF(cx + 0.042f * h, top + 0.958f * h)
     };
     graphics.FillPolygon(&crimsonBrush, polyInner, 5);
-
-    // Sun & Moon Symbols
     
-    // --- TOP SECTION: Crescent Moon ---
+    // Moon
     REAL moonOuterDiam = 0.20f * h;
     REAL moonOuterX = cx + 0.22f * h - (moonOuterDiam / 2.0f);
     REAL moonOuterY = top + 0.32f * h - (moonOuterDiam / 2.0f);
-    
-    // Draw the main white base for the moon
     graphics.FillEllipse(&whiteBrush, moonOuterX, moonOuterY, moonOuterDiam, moonOuterDiam);
     
-    // Overlap with a crimson circle to carve out the crescent shape
     REAL moonInnerDiam = 0.18f * h;
     REAL moonInnerX = moonOuterX + 0.01f * h;
     REAL moonInnerY = moonOuterY - 0.04f * h;
     graphics.FillEllipse(&crimsonBrush, moonInnerX, moonInnerY, moonInnerDiam, moonInnerDiam);
     
-    // Draw the smaller sun (star) resting inside the lower curve of the crescent
     REAL moonStarDiam = 0.09f * h;
     REAL moonStarX = cx + 0.22f * h - (moonStarDiam / 2.0f);
     REAL moonStarY = top + 0.33f * h - (moonStarDiam / 2.0f);
     graphics.FillEllipse(&whiteBrush, moonStarX, moonStarY, moonStarDiam, moonStarDiam);
 
-    // --- BOTTOM SECTION: Sun ---
-    // At this scale, a clean geometric circle best represents the core of the 12-pointed sun
+    // Sun
     REAL sunDiam = 0.18f * h;
     REAL sunX = cx + 0.26f * h - (sunDiam / 2.0f);
     REAL sunY = top + 0.73f * h - (sunDiam / 2.0f);
     graphics.FillEllipse(&whiteBrush, sunX, sunY, sunDiam, sunDiam);
 
-    // 2. Render Text (DPI-scaled font)
-    FontFamily fontFamily(L"Segoe UI");
-    Font font(&fontFamily, 12.0f * s, FontStyleBold, UnitPixel);
-    std::wstring dateStr = GetNepaliDateString();
 
-    // Adjust text rectangle to account for the new unified flag width
-    REAL flagWidth = 0.822f * h;
-    RectF textRect(cx + flagWidth + 12.0f * s, 0.0f, (REAL)rawWidth - (cx + flagWidth + 12.0f * s), (REAL)rawHeight);
-    
-    StringFormat format;
-    format.SetAlignment(StringAlignmentNear);
-    format.SetLineAlignment(StringAlignmentCenter);
-
-    graphics.DrawString(dateStr.c_str(), -1, &font, textRect, &format, &whiteBrush);
+    // 4. Render Date Text
+    RectF dateRect(dateX, 0.0f, (REAL)rawWidth - dateX, (REAL)rawHeight);
+    graphics.DrawString(dateStr.c_str(), -1, &font, dateRect, &formatNear, &textBrush);
 
     // Apply per-pixel alpha channel to OS Window
     POINT ptDst = { g_xPos, g_yPos };
@@ -353,6 +536,8 @@ void ShowContextMenu(HWND hWnd, POINT pt) {
 
     bool startupOn = IsStartupEnabled();
     AppendMenu(hMenu, MF_STRING | (startupOn ? MF_CHECKED : 0), 3, L"Run at Startup");
+    AppendMenu(hMenu, MF_STRING | (g_showDay ? MF_CHECKED : 0), 5, L"Show Day");
+    AppendMenu(hMenu, MF_STRING, 4, L"Check for Updates");
 
     AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
     AppendMenu(hMenu, MF_STRING, 2, L"Exit");
@@ -373,6 +558,13 @@ void ShowContextMenu(HWND hWnd, POINT pt) {
         PostQuitMessage(0);
     } else if (cmd == 3) {
         SetStartupEnabled(!startupOn);
+    } else if (cmd == 4) {
+        HANDLE hThread = CreateThread(NULL, 0, CheckForUpdateThread, (LPVOID)TRUE, 0, NULL);
+        if (hThread) CloseHandle(hThread);
+    } else if (cmd == 5) {
+        g_showDay = !g_showDay;
+        SaveConfig();
+        RenderWidget(hWnd);
     }
 }
 
@@ -472,6 +664,36 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         PostQuitMessage(0);
         break;
 
+    // ── Update notification ──────────────────────────────────────────────────
+    case WM_UPDATE_AVAILABLE: {
+        wchar_t msg[256];
+        swprintf(msg, 256, L"A new version (%s) is available!\n\nWould you like to download it?", g_latestVersion);
+        if (MessageBoxW(hWnd, msg, L"Nepali Date Widget \u2014 Update Available",
+                MB_YESNO | MB_ICONINFORMATION) == IDYES) {
+            std::wstring url = GITHUB_RELEASE_URL + std::wstring(g_latestVersion);
+            ShellExecuteW(NULL, L"open", url.c_str(), NULL, NULL, SW_SHOWNORMAL);
+        }
+        break;
+    }
+    
+    case WM_UPDATE_NOT_FOUND:
+        MessageBoxW(hWnd, L"You are already running the latest version.", 
+                    L"Nepali Date Widget \u2014 Up to Date", MB_OK | MB_ICONINFORMATION);
+        break;
+
+    case WM_UPDATE_ERROR:
+        MessageBoxW(hWnd, L"Failed to check for updates. Please check your internet connection.", 
+                    L"Nepali Date Widget \u2014 Error", MB_OK | MB_ICONERROR);
+        break;
+
+    // ── Theme change detection ─────────────────────────────────────────────
+    case WM_SETTINGCHANGE:
+        if (lParam && wcscmp((LPCWSTR)lParam, L"ImmersiveColorSet") == 0) {
+            g_isLightTheme = DetectWindowsTheme();
+            RenderWidget(hWnd);
+        }
+        break;
+
     default:
         return DefWindowProc(hWnd, msg, wParam, lParam);
     }
@@ -508,6 +730,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     LoadConfig();
 
+    // Detect initial Windows theme
+    g_isLightTheme = DetectWindowsTheme();
+
     GdiplusStartupInput gdiplusStartupInput;
     GdiplusStartup(&g_gdiplusToken, &gdiplusStartupInput, NULL);
 
@@ -536,7 +761,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     // DPI-scaled window size
-    int winW = (int)(175 * g_dpiScale);
+    int winW = (int)((g_showDay ? 190 : 155) * g_dpiScale);
     int winH = (int)(48 * g_dpiScale);
 
     // Create a frameless, tool-window with layered (translucent) attributes as a POPUP
@@ -559,6 +784,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     ShowWindow(g_hWnd, SW_SHOWNOACTIVATE);
     RenderWidget(g_hWnd);
+
+    // ── Launch background update check (non-blocking) ────────────────────
+    HANDLE hThread = CreateThread(NULL, 0, CheckForUpdateThread, (LPVOID)FALSE, 0, NULL);
+    if (hThread) CloseHandle(hThread);  // Fire-and-forget
 
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
