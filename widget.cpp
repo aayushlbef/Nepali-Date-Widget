@@ -18,7 +18,7 @@
 using namespace Gdiplus;
 
 // ── App Version ──────────────────────────────────────────────────────────────
-#define APP_VERSION L"3.3.0"
+#define APP_VERSION L"3.4.1"
 #define GITHUB_REPO_API L"/repos/aayushlbef/Nepali-Date-Widget/releases/latest"
 #define GITHUB_RELEASE_URL L"https://github.com/aayushlbef/Nepali-Date-Widget/releases/tag/"
 #define WM_UPDATE_AVAILABLE (WM_USER + 2)
