@@ -120,4 +120,3 @@ while bs_year <= 2100:
 bs_day += days
 
 print('C++ result: {}-{}-{}'.format(bs_year, bs_month, bs_day))
-

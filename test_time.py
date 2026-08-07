@@ -36,4 +36,3 @@ uNow = (ft2.dwHighDateTime << 32) | ft2.dwLowDateTime
 
 print('diff in 100ns:', uNow - uRef)
 print('days:', (uNow - uRef) // 864000000000)
-
