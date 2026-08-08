@@ -2,10 +2,11 @@
 ; Compiles to a single Setup.exe that installs the widget
 
 #define MyAppName "Nepali Date Widget"
-#define MyAppVersion "3.4.1"
+#define MyAppVersion "3.4.2"
 #define MyAppPublisher "Aayush"
 #define MyAppURL "https://github.com/aayushlbef/Nepali-Date-Widget"
 #define MyAppExeName "NepaliDateWidget.exe"
+#define MyAppWebsite "https://aayushlbef.github.io/Nepali-Date-Widget/"
 
 [Setup]
 ; Unique App ID - DO NOT change this after first release
@@ -56,6 +57,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{#MyAppWebsite}"; Description: "Visit the Nepali Date Widget website"; Flags: shellexec nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: files; Name: "{app}\widget.cfg"

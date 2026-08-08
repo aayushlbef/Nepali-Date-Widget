@@ -18,7 +18,7 @@
 using namespace Gdiplus;
 
 // ── App Version ──────────────────────────────────────────────────────────────
-#define APP_VERSION L"3.4.1"
+#define APP_VERSION L"3.4.2"
 #define GITHUB_REPO_API L"/repos/aayushlbef/Nepali-Date-Widget/releases/latest"
 #define GITHUB_RELEASE_URL L"https://github.com/aayushlbef/Nepali-Date-Widget/releases/tag/"
 #define WM_UPDATE_AVAILABLE (WM_USER + 2)
@@ -538,6 +538,7 @@ void ShowContextMenu(HWND hWnd, POINT pt) {
     AppendMenu(hMenu, MF_STRING | (startupOn ? MF_CHECKED : 0), 3, L"Run at Startup");
     AppendMenu(hMenu, MF_STRING | (g_showDay ? MF_CHECKED : 0), 5, L"Show Day");
     AppendMenu(hMenu, MF_STRING, 4, L"Check for Updates");
+    AppendMenu(hMenu, MF_STRING, 6, L"\u2764 Support / Donate");
 
     AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
     AppendMenu(hMenu, MF_STRING, 2, L"Exit");
@@ -565,6 +566,8 @@ void ShowContextMenu(HWND hWnd, POINT pt) {
         g_showDay = !g_showDay;
         SaveConfig();
         RenderWidget(hWnd);
+    } else if (cmd == 6) {
+        ShellExecuteW(NULL, L"open", L"https://aayushlbef.github.io/Nepali-Date-Widget/#sponsor", NULL, NULL, SW_SHOWNORMAL);
     }
 }
 
