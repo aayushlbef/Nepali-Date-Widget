@@ -22,12 +22,6 @@ function copyAddress(btn) {
     const navbar = document.getElementById('navbar');
     const mobileToggle = document.getElementById('mobileToggle');
     const navLinks = document.getElementById('navLinks');
-    
-    // Animation Elements
-    const heroSection = document.getElementById('hero');
-    const heroContent = document.getElementById('heroContent');
-    const screenshotWrapper = document.getElementById('screenshotWrapper');
-    const heroStats = document.getElementById('heroStats');
 
     // === Navbar Scroll Effect ===
     function handleNavbarScroll() {
@@ -36,16 +30,6 @@ function copyAddress(btn) {
         } else {
             navbar.classList.remove('scrolled');
         }
-    }
-
-    // === (Zoom Out Effect Removed) ===
-    function handleHeroScroll() {
-        // No-op
-    }
-
-    // === Easing Functions ===
-    function easeOutCubic(t) {
-        return 1 - Math.pow(1 - t, 3);
     }
     
     // === Mobile Nav Toggle ===
@@ -130,7 +114,6 @@ function copyAddress(btn) {
         window.addEventListener('scroll', () => {
             requestAnimationFrame(() => {
                 handleNavbarScroll();
-                handleHeroScroll();
                 handleParallax();
             });
         }, { passive: true });
@@ -144,7 +127,6 @@ function copyAddress(btn) {
 
         // Initial calls
         handleNavbarScroll();
-        handleHeroScroll();
     }
 
     // Wait for DOM
