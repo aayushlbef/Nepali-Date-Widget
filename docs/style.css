@@ -493,6 +493,18 @@ img {
     z-index: 5;
 }
 
+.screenshot-wrapper.side-by-side {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+}
+
+@media (max-width: 900px) {
+    .screenshot-wrapper.side-by-side {
+        grid-template-columns: 1fr;
+    }
+}
+
 .screenshot-frame {
     position: relative;
     border-radius: var(--radius-lg);
@@ -535,6 +547,21 @@ img {
     );
     pointer-events: none;
     border-radius: inherit;
+}
+
+.theme-label {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    font-weight: 600;
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    z-index: 10;
 }
 
 
