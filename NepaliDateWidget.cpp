@@ -538,7 +538,7 @@ void ShowContextMenu(HWND hWnd, POINT pt) {
     AppendMenu(hMenu, MF_STRING | (startupOn ? MF_CHECKED : 0), 3, L"Run at Startup");
     AppendMenu(hMenu, MF_STRING | (g_showDay ? MF_CHECKED : 0), 5, L"Show Day");
     AppendMenu(hMenu, MF_STRING, 4, L"Check for Updates");
-    AppendMenu(hMenu, MF_STRING, 6, L"\u2764 Support / Donate");
+    AppendMenu(hMenu, MF_STRING, 6, L"Support / Donate \u2764");
 
     AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
     AppendMenu(hMenu, MF_STRING, 2, L"Exit");
