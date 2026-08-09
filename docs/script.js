@@ -105,6 +105,38 @@ function copyAddress(btn) {
         });
     }
 
+    // === Theme Toggle ===
+    function initThemeToggle() {
+        const themeToggleBtn = document.getElementById('themeToggle');
+        
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+        }
+
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            setTheme(newTheme);
+        }
+
+        const systemThemeMedia = window.matchMedia('(prefers-color-scheme: light)');
+        
+        systemThemeMedia.addEventListener('change', (e) => {
+            if (!localStorage.getItem('theme')) {
+                setTheme(e.matches ? 'light' : 'dark');
+            }
+        });
+
+        if (themeToggleBtn) {
+            themeToggleBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleTheme();
+            });
+        }
+    }
+
     // === Initialize ===
     function init() {
         // Force initial scroll state
@@ -118,12 +150,15 @@ function copyAddress(btn) {
             });
         }, { passive: true });
 
-        mobileToggle?.addEventListener('click', handleMobileToggle);
+        if (mobileToggle) {
+            mobileToggle.addEventListener('click', handleMobileToggle);
+        }
 
         // Init modules
         initScrollReveal();
         initPerfMeters();
         initSmoothScroll();
+        initThemeToggle();
 
         // Initial calls
         handleNavbarScroll();
