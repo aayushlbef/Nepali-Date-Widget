@@ -31,8 +31,14 @@ The widget uses the native Windows Win32 API and GDI+ to render directly to your
 - **WinHTTP API:** Update checks are performed safely on a detached background thread using native Windows networking to ensure the UI never stutters.
 
 ## 🏃 Getting Started
-1. Download `NepaliDateWidget_Setup.exe` from the latest Release.
-2. Run the installer to add it to your system.
-3. Right-click the widget to unlock its position and drag it to your preferred spot on your screen.
-4. Right-click again and select **"Lock Position"** to make it click-through and transparent! 
-5. Use the right-click menu to configure it to **Run at Startup** or toggle the **Show Day** feature.
+
+> [!NOTE]
+> **Browser & Windows SmartScreen Warnings**
+> Because this is a new, free open-source project, it does not yet have a paid code-signing certificate. Your web browser (like Chrome/Edge) or Windows SmartScreen might initially flag the download as "risky" or "unrecognized". This is completely normal for new indie software. You can safely bypass these warnings by clicking **Keep -> Keep anyway** in your browser, and **More Info -> Run Anyway** in Windows.
+
+1. Download **`NepaliDateWidget_v3.4.1.zip`** from the latest Release. *(We distribute it as a .zip to help reduce aggressive browser download blocks).*
+2. Extract the `.zip` file to find `NepaliDateWidget_Setup.exe`.
+3. Run the installer to add it to your system.
+4. Right-click the widget to unlock its position and drag it to your preferred spot on your screen.
+5. Right-click again and select **"Lock Position"** to make it click-through and transparent! 
+6. Use the right-click menu to configure it to **Run at Startup** or toggle the **Show Day** feature.
