@@ -1322,7 +1322,94 @@ void RenderCalendar(HWND hWnd) {
         Pen flyoutPen(g_isLightTheme ? Color(60, 0, 0, 0) : Color(70, 255, 255, 255), 1.0f * s);
         graphics.DrawPath(&flyoutPen, &bubblePath);
 
-        // Header, Badges, Divider, Title, Description, Retry Button... (Standard rendering omitted for brevity)
+        // Left accent strip
+        GraphicsPath stripPath;
+        AddRoundedRectangle(stripPath, fx + 12.0f * s, fy + 16.0f * s, 4.0f * s, fh - 32.0f * s, 2.0f * s);
+        SolidBrush stripBrush(isPubHol ? Color(255, 220, 20, 60) : (isOffline ? Color(255, 220, 140, 20) : Color(255, 0, 120, 215)));
+        graphics.FillPath(&stripBrush, &stripPath);
+
+        int selAdY = 0, selAdM = 0, selAdD = 0, selDow = 0;
+        BSToAD(g_calYear, g_calMonth, g_calSelectedDay, selAdY, selAdM, selAdD, selDow);
+
+        StringFormat formatNearNoWrap;
+        formatNearNoWrap.SetAlignment(StringAlignmentNear);
+        formatNearNoWrap.SetLineAlignment(StringAlignmentCenter);
+        formatNearNoWrap.SetFormatFlags(StringFormatFlagsNoWrap);
+
+        // Top Section Line 1: Devanagari BS Date or Status Header
+        std::wstring npDateStr;
+        if (isOffline || isDownloading) {
+            npDateStr = ToDevanagariNum(g_calYear) + L" BS \u2022 \u091A\u093E\u0921\u092A\u0930\u094D\u0935 \u0930 \u092C\u093F\u0926\u093E";
+        } else {
+            npDateStr = ToDevanagariNum(g_calYear) + L" " + kNepaliMonthNamesNP[mIdx] + L" " +
+                        ToDevanagariNum(g_calSelectedDay) + L" \u0917\u0924\u0947, " + kNepaliDayNamesNP[selDow];
+        }
+
+        RectF npDateRect(fx + 26.0f * s, fy + 16.0f * s, fw - 165.0f * s, 22.0f * s);
+        graphics.DrawString(npDateStr.c_str(), -1, &fontDetailL2, npDateRect, &formatNearNoWrap, &textPrimary);
+
+        // Top Section Line 2: English AD Date or Sub-Header
+        std::wstring enDateStr;
+        if (isOffline || isDownloading) {
+            enDateStr = L"Events & Public Holidays";
+        } else {
+            enDateStr = std::to_wstring(selAdD) + L" " + kEnglishMonthNames[selAdM - 1] + L" " +
+                        std::to_wstring(selAdY) + L", " + kNepaliDayNamesEN[selDow];
+        }
+
+        RectF enDateRect(fx + 26.0f * s, fy + 40.0f * s, fw - 165.0f * s, 20.0f * s);
+        graphics.DrawString(enDateStr.c_str(), -1, &fontNavSub, enDateRect, &formatNearNoWrap, &textSubtle);
+
+        // Top Section: Category Badge on right
+        RectF badgeRect(fx + fw - 132.0f * s, fy + 22.0f * s, 118.0f * s, 28.0f * s);
+        GraphicsPath badgePath;
+        AddRoundedRectangle(badgePath, badgeRect.X, badgeRect.Y, badgeRect.Width, badgeRect.Height, 5.0f * s);
+        
+        if (isPubHol) {
+            SolidBrush badgeBg(Color(50, 220, 20, 60));
+            graphics.FillPath(&badgeBg, &badgePath);
+            Pen badgePen(Color(180, 220, 20, 60), 1.0f * s);
+            graphics.DrawPath(&badgePen, &badgePath);
+            graphics.DrawString(L"PUBLIC HOLIDAY", -1, &fontBadge, badgeRect, &formatCenter, &crimsonText);
+        } else if (isOffline) {
+            SolidBrush badgeBg(Color(50, 220, 140, 20));
+            graphics.FillPath(&badgeBg, &badgePath);
+            Pen badgePen(Color(180, 220, 140, 20), 1.0f * s);
+            graphics.DrawPath(&badgePen, &badgePath);
+            SolidBrush amberText(Color(255, 230, 140, 30));
+            graphics.DrawString(L"\u26A0 OFFLINE", -1, &fontBadge, badgeRect, &formatCenter, &amberText);
+        } else if (isDownloading) {
+            SolidBrush badgeBg(Color(50, 0, 120, 215));
+            graphics.FillPath(&badgeBg, &badgePath);
+            Pen badgePen(Color(180, 0, 120, 215), 1.0f * s);
+            graphics.DrawPath(&badgePen, &badgePath);
+            SolidBrush blueText(Color(255, 60, 140, 255));
+            graphics.DrawString(L"\u21BB SYNCING", -1, &fontBadge, badgeRect, &formatCenter, &blueText);
+        } else {
+            SolidBrush badgeBg(g_isLightTheme ? Color(40, 0, 56, 147) : Color(60, 0, 56, 147));
+            graphics.FillPath(&badgeBg, &badgePath);
+            Pen badgePen(Color(180, 0, 80, 200), 1.0f * s);
+            graphics.DrawPath(&badgePen, &badgePath);
+            SolidBrush blueText(Color(255, 60, 140, 255));
+            graphics.DrawString(L"FESTIVAL / \u092A\u0930\u094D\u0935", -1, &fontBadge, badgeRect, &formatCenter, &blueText);
+        }
+
+        // Divider line
+        Pen dividerPen(g_isLightTheme ? Color(25, 0, 0, 0) : Color(40, 255, 255, 255), 1.0f * s);
+        graphics.DrawLine(&dividerPen, fx + 22.0f * s, fy + 68.0f * s, fx + fw - 14.0f * s, fy + 68.0f * s);
+
+        // Event Title: Nepali & English
+        RectF holTitleRect(fx + 26.0f * s, fy + 78.0f * s, fw - 42.0f * s, 28.0f * s);
+        SolidBrush holTitleBrush(isPubHol ? Color(255, 240, 45, 75) : (g_isLightTheme ? Color(255, 0, 56, 147) : Color(255, 90, 170, 255)));
+        graphics.DrawString(cardTitleNP.c_str(), -1, &fontDetailL1, holTitleRect, &formatNear, &holTitleBrush);
+
+        RectF holSubTitleRect(fx + 26.0f * s, fy + 108.0f * s, fw - 42.0f * s, 24.0f * s);
+        graphics.DrawString(cardTitleEN.c_str(), -1, &fontDetailL2, holSubTitleRect, &formatNear, &textPrimary);
+
+        // Event Description
+        RectF holDescRect(fx + 26.0f * s, fy + 138.0f * s, (flyoutW - 48.0f) * s, (neededDescH + 4.0f) * s);
+        SolidBrush descTextBrush(g_isLightTheme ? Color(255, 45, 45, 50) : Color(255, 235, 235, 240));
+        graphics.DrawString(cardDescription.c_str(), -1, &fontDetailL3, holDescRect, &formatDesc, &descTextBrush);
 
         // Retry button if offline
         if (isOffline) {
