@@ -637,29 +637,6 @@ DWORD WINAPI FetchHolidaysThread(LPVOID lpParam) {
         }
     }
 
-    // 3. Fallback: check local data/ folder if shipped or running locally
-    if (!downloaded) {
-        wchar_t exePath[MAX_PATH];
-        GetModuleFileNameW(NULL, exePath, MAX_PATH);
-        std::wstring ws(exePath);
-        size_t pos = ws.find_last_of(L"\\/");
-        if (pos != std::wstring::npos) ws = ws.substr(0, pos);
-        std::wstring localJsonPath = ws + L"\\data\\holidays_" + std::to_wstring(bsYear) + L".json";
-        
-        FILE* f = _wfopen(localJsonPath.c_str(), L"rb");
-        if (f) {
-            fseek(f, 0, SEEK_END);
-            long sz = ftell(f);
-            fseek(f, 0, SEEK_SET);
-            if (sz > 0) {
-                jsonBody.resize(sz);
-                fread(&jsonBody[0], 1, sz, f);
-                downloaded = true;
-            }
-            fclose(f);
-        }
-    }
-
     if (downloaded) {
         std::vector<NepaliHoliday> parsed;
         if (ParseHolidaysJson(jsonBody, bsYear, parsed)) {
