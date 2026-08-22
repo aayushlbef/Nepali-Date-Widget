@@ -3,20 +3,48 @@
 A lightweight, native C++ desktop widget for Windows that beautifully displays the current Nepali (Bikram Sambat) date, specially designed to be viewed directly above your taskbar.
 
 ## 🚀 Features
-- **Theme Auto-Adapt:** Automatically detects your Windows Light/Dark mode and adjusts its colors and text rendering seamlessly.
+
+- **Theme Auto-Adapt:** Automatically detects your Windows Light/Dark mode and adjusts its colors and text rendering seamlessly. Reacts to live theme changes instantly without a restart.
 - **Auto-Updates:** Built-in update checker uses the GitHub Releases API on a background thread to notify you when a new version is available.
 - **Customizable Layout:** Toggle the Day of the Week (Sun, Mon, Tue) next to the Nepali flag directly from the context menu.
 - **Zero-Distraction Design:** Frameless, borderless, and perfectly transparent with high-quality GDI+ per-pixel alpha blending.
 - **Smart Auto-Hide:** Automatically detects when you're playing games or watching movies in fullscreen and hides itself so it doesn't get in your way.
 - **DPI Aware:** Renders crystal-clear text and graphics on high-resolution (4K) monitors without blurriness.
 - **Professional Installer:** Comes with a standard Windows Installer (`Setup.exe`) for easy installation, Start Menu shortcuts, and clean uninstalls (no Admin privileges required).
+- **System Tray Icon:** Accessible from the system tray with a right-click context menu for quick access to all settings.
+
+## 📅 Interactive Calendar Popup
+
+Click the widget to open a full **Bikram Sambat Calendar** popup — powered by a native GDI+ rendering engine.
+
+- **Month Navigation:** Use the `‹` / `›` buttons or scroll the **mouse wheel** to navigate between months of the current BS year.
+- **Dual Date Display:** Every calendar cell shows both the **BS day** (large) and the corresponding **AD date** (small, bottom-right).
+- **Today Highlight:** The current day is highlighted in crimson red for instant recognition.
+- **Keyboard Navigation:** Use **Arrow Keys** to move between days, **Home** to jump to today, and **Escape** to close.
+- **Bilingual Header:** Month name displayed in both English and Devanagari script, e.g., `Baisakh 2082 • बैशाख २०८२`.
+- **Gregorian Range:** Shows the full Gregorian (AD) date range for the displayed BS month.
+- **Public Holiday & Saturday Indicators:** Saturdays and public holidays are highlighted in red; festival/event days show a colored dot indicator.
+
+## 🎉 Holiday & Festival Engine
+
+The calendar automatically fetches and displays Nepali public holidays and cultural events for the current BS year.
+
+- **Online Auto-Fetch:** On first launch, holiday data is downloaded from GitHub (with jsDelivr CDN as a fallback) in a background thread — the UI never freezes.
+- **Smart Local Cache:** Downloaded holidays are saved in an XOR-encoded binary `.dat` file under `%LOCALAPPDATA%\NepaliDateWidget\` so they load instantly on every subsequent launch.
+- **Event Flyout Panel:** Clicking on any day with an event shows a speech-bubble flyout with:
+  - Full Nepali (Devanagari) and English event title
+  - Event category badge (e.g., **PUBLIC HOLIDAY**, **FESTIVAL / पर्व**)
+  - A detailed event description
+- **Offline Mode:** If no internet is available, the calendar shows an **⚠ OFFLINE** notice with a **↻ Retry** button to re-attempt fetching when back online.
+- **BS Year Coverage:** Full calendar data from **BS 1975 to 2100**.
 
 ## ⚡ Ultra-Efficient Resource Management
-This widget is engineered from the ground up to consume absolutely minimal system resources (essentially 0.00% CPU usage and a tiny RAM footprint). 
+
+This widget is engineered from the ground up to consume absolutely minimal system resources (essentially 0.00% CPU usage and a tiny RAM footprint).
 
 **How it achieves this:**
 Instead of constantly running complex date conversion algorithms, the widget uses an ultra-efficient caching technique:
-1. Every second, it asks the Windows OS for the current Gregorian (AD) Date—a nearly zero-cost operation.
+1. Every second, it asks the Windows OS for the current Gregorian (AD) Date — a nearly zero-cost operation.
 2. It checks if the Day, Month, or Year has changed since the last frame.
 3. Only if the day has physically changed (which happens exactly once a day at 12:00 AM) will the widget perform the Bikram Sambat conversion logic and re-render the text.
 4. For the other 86,399 seconds of the day, it skips all math entirely and just paints the cached text to the screen!
@@ -24,11 +52,13 @@ Instead of constantly running complex date conversion algorithms, the widget use
 This ensures you have a perfectly accurate, real-time widget that doesn't drain your laptop's battery or steal CPU cycles from your games.
 
 ## 🛠️ How It Works
+
 The widget uses the native Windows Win32 API and GDI+ to render directly to your screen:
 - **Z-Order Enforcement:** It uses a 250ms background timer to assert its `HWND_TOPMOST` status, preventing Windows from hiding it behind other windows.
 - **Taskbar Previews:** It aggressively intercepts the `WM_SHOWWINDOW` API call to veto `SW_PARENTCLOSING` requests, stopping the Windows Taskbar thumbnail system from accidentally hiding it when you hover over open apps.
-- **Native BS Conversion:** The entire Bikram Sambat (1975-2100) calendar mapping is embedded directly into the C++ binary. This guarantees offline functionality out-of-the-box.
-- **WinHTTP API:** Update checks are performed safely on a detached background thread using native Windows networking to ensure the UI never stutters.
+- **Native BS Conversion:** The entire Bikram Sambat (1975–2100) calendar mapping is embedded directly into the C++ binary. This guarantees offline date display out-of-the-box.
+- **WinHTTP API:** Update checks and holiday fetching are performed safely on detached background threads using native Windows networking to ensure the UI never stutters.
+- **Live Theme Sync:** Listens for `WM_SETTINGCHANGE` (ImmersiveColorSet) to detect and apply Windows theme changes in real-time.
 
 ## 🏃 Getting Started
 
@@ -36,9 +66,10 @@ The widget uses the native Windows Win32 API and GDI+ to render directly to your
 > **Browser & Windows SmartScreen Warnings**
 > Because this is a new, free open-source project, it does not yet have a paid code-signing certificate. Your web browser (like Chrome/Edge) or Windows SmartScreen might initially flag the download as "risky" or "unrecognized". This is completely normal for new indie software. You can safely bypass these warnings by clicking **Keep -> Keep anyway** in your browser, and **More Info -> Run Anyway** in Windows.
 
-1. Download **`NepaliDateWidget_v3.4.1.zip`** from the latest Release. *(We distribute it as a .zip to help reduce aggressive browser download blocks).*
+1. Download **`NepaliDateWidget_v3.4.2.zip`** from the latest Release. *(We distribute it as a .zip to help reduce aggressive browser download blocks).*
 2. Extract the `.zip` file to find `NepaliDateWidget_Setup.exe`.
 3. Run the installer to add it to your system.
 4. Right-click the widget to unlock its position and drag it to your preferred spot on your screen.
-5. Right-click again and select **"Lock Position"** to make it click-through and transparent! 
-6. Use the right-click menu to configure it to **Run at Startup** or toggle the **Show Day** feature.
+5. Right-click again and select **"Lock Position"** to make it click-through and transparent!
+6. **Left-click** the widget at any time to open the **interactive Nepali Calendar**.
+7. Use the right-click menu to configure it to **Run at Startup**, toggle the **Show Day** feature, or **Check for Updates**.
