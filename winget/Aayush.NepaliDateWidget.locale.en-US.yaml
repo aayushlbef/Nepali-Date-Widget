@@ -2,7 +2,7 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 
 PackageIdentifier: Aayush.NepaliDateWidget
-PackageVersion: 3.4.2
+PackageVersion: 3.5
 PackageLocale: en-US
 Publisher: Aayush
 PublisherUrl: https://github.com/aayushlbef
@@ -25,6 +25,6 @@ Tags:
   - calendar
   - taskbar
   - nepal
-ReleaseNotesUrl: https://github.com/aayushlbef/Nepali-Date-Widget/releases/tag/v3.4.2
+ReleaseNotesUrl: https://github.com/aayushlbef/Nepali-Date-Widget/releases/tag/v3.5
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0

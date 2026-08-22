@@ -2,7 +2,7 @@
 ; Compiles to a single Setup.exe that installs the widget
 
 #define MyAppName "Nepali Date Widget"
-#define MyAppVersion "3.4.2"
+#define MyAppVersion "3.5"
 #define MyAppPublisher "Aayush"
 #define MyAppURL "https://github.com/aayushlbef/Nepali-Date-Widget"
 #define MyAppExeName "NepaliDateWidget.exe"

@@ -1,0 +1,27 @@
+{
+    "version": "3.5",
+    "description": "A lightweight, native C++ desktop widget for Windows that displays the current Nepali (Bikram Sambat) date directly on your desktop.",
+    "homepage": "https://aayushlbef.github.io/Nepali-Date-Widget/",
+    "license": "MIT",
+    "notes": "Nepali Date Widget runs directly on your desktop above the taskbar.",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/aayushlbef/Nepali-Date-Widget/releases/download/v3.5/NepaliDateWidget_Setup.exe"
+        }
+    },
+    "innosetup": true,
+    "shortcuts": [
+        [
+            "NepaliDateWidget.exe",
+            "Nepali Date Widget"
+        ]
+    ],
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/aayushlbef/Nepali-Date-Widget/releases/download/v$version/NepaliDateWidget_Setup.exe"
+            }
+        }
+    }
+}
