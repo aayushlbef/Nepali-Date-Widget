@@ -6,7 +6,8 @@
     "notes": "Nepali Date Widget runs directly on your desktop above the taskbar.",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/aayushlbef/Nepali-Date-Widget/releases/download/v3.5/NepaliDateWidget_Setup.exe"
+            "url": "https://github.com/aayushlbef/Nepali-Date-Widget/releases/download/v3.5/NepaliDateWidget_Setup.exe",
+            "hash": "cc5672170c6edfcff09853bd9b2e7959dceb356185e6646089bc0bb508e8b99c"
         }
     },
     "innosetup": true,

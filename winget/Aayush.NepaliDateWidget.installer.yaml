@@ -11,6 +11,6 @@ InstallerSwitches:
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/aayushlbef/Nepali-Date-Widget/releases/download/v3.5/NepaliDateWidget_Setup.exe
-    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    InstallerSha256: CC5672170C6EDFCFF09853BD9B2E7959DCEB356185E6646089BC0BB508E8B99C
 ManifestType: installer
 ManifestVersion: 1.6.0

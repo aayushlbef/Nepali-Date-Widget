@@ -25,11 +25,13 @@ using namespace Gdiplus;
 #define APP_VERSION L"3.5"
 #define GITHUB_REPO_API L"/repos/aayushlbef/Nepali-Date-Widget/releases/latest"
 #define GITHUB_RELEASE_URL L"https://github.com/aayushlbef/Nepali-Date-Widget/releases/tag/"
-#define WM_UPDATE_AVAILABLE (WM_USER + 2)
-#define WM_UPDATE_NOT_FOUND (WM_USER + 3)
-#define WM_UPDATE_ERROR     (WM_USER + 4)
-#define WM_HOLIDAYS_LOADED  (WM_USER + 5)
-#define WM_HOLIDAYS_FAILED  (WM_USER + 6)
+#define WM_UPDATE_AVAILABLE      (WM_USER + 2)
+#define WM_UPDATE_NOT_FOUND      (WM_USER + 3)
+#define WM_UPDATE_ERROR          (WM_USER + 4)
+#define WM_HOLIDAYS_LOADED       (WM_USER + 5)
+#define WM_HOLIDAYS_FAILED       (WM_USER + 6)
+#define WM_UPDATE_DOWNLOADING    (WM_USER + 7)
+#define WM_UPDATE_INSTALL_FAILED (WM_USER + 8)
 
 // ── Global State ─────────────────────────────────────────────────────────────
 ULONG_PTR g_gdiplusToken;
@@ -166,6 +168,115 @@ DWORD WINAPI CheckForUpdateThread(LPVOID lpParam) {
         }
     } else {
         if (isManual) PostMessage(g_hWnd, WM_UPDATE_ERROR, 0, 0);
+    }
+    return 0;
+}
+
+// ── Auto-Updater: Download & Install ─────────────────────────────────────────
+// Downloads the Setup.exe for g_latestVersion into %TEMP%, then runs it
+// silently so the installer can upgrade the running app.
+DWORD WINAPI DownloadAndInstallThread(LPVOID) {
+    // Build the download URL:
+    // e.g. https://github.com/aayushlbef/Nepali-Date-Widget/releases/download/v3.5/NepaliDateWidget_Setup.exe
+    wchar_t downloadUrl[512] = {0};
+    swprintf(downloadUrl, 512,
+        L"https://github.com/aayushlbef/Nepali-Date-Widget/releases/download/%ls/NepaliDateWidget_Setup.exe",
+        g_latestVersion);
+
+    // Build a unique temp path
+    wchar_t tempDir[MAX_PATH] = {0};
+    GetTempPathW(MAX_PATH, tempDir);
+    wchar_t tempFile[MAX_PATH] = {0};
+    swprintf(tempFile, MAX_PATH, L"%sNepaliDateWidget_Update_%ls.exe", tempDir, g_latestVersion);
+
+    // --- Download via WinHTTP ---
+    HINTERNET hSession = WinHttpOpen(L"NepaliDateWidget/" APP_VERSION,
+        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) { PostMessage(g_hWnd, WM_UPDATE_INSTALL_FAILED, 0, 0); return 0; }
+
+    // WinHTTP requires separate host and path
+    HINTERNET hConnect = WinHttpConnect(hSession, L"github.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
+    if (!hConnect) {
+        WinHttpCloseHandle(hSession);
+        PostMessage(g_hWnd, WM_UPDATE_INSTALL_FAILED, 0, 0);
+        return 0;
+    }
+
+    // Build path portion of the URL
+    wchar_t urlPath[512] = {0};
+    swprintf(urlPath, 512,
+        L"/aayushlbef/Nepali-Date-Widget/releases/download/%ls/NepaliDateWidget_Setup.exe",
+        g_latestVersion);
+
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", urlPath,
+        NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+    if (!hRequest) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        PostMessage(g_hWnd, WM_UPDATE_INSTALL_FAILED, 0, 0);
+        return 0;
+    }
+
+    // Follow redirects automatically
+    DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
+    WinHttpSetOption(hRequest, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
+
+    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+            WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+        !WinHttpReceiveResponse(hRequest, NULL)) {
+        WinHttpCloseHandle(hRequest);
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        PostMessage(g_hWnd, WM_UPDATE_INSTALL_FAILED, 0, 0);
+        return 0;
+    }
+
+    // Write response body to temp file
+    HANDLE hFile = CreateFileW(tempFile, GENERIC_WRITE, 0, NULL,
+        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        WinHttpCloseHandle(hRequest);
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        PostMessage(g_hWnd, WM_UPDATE_INSTALL_FAILED, 0, 0);
+        return 0;
+    }
+
+    char buf[8192];
+    DWORD bytesRead = 0, bytesWritten = 0;
+    bool writeOk = true;
+    while (WinHttpReadData(hRequest, buf, sizeof(buf), &bytesRead) && bytesRead > 0) {
+        if (!WriteFile(hFile, buf, bytesRead, &bytesWritten, NULL)) {
+            writeOk = false;
+            break;
+        }
+        bytesRead = 0;
+    }
+
+    CloseHandle(hFile);
+    WinHttpCloseHandle(hRequest);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+
+    if (!writeOk) {
+        DeleteFileW(tempFile);
+        PostMessage(g_hWnd, WM_UPDATE_INSTALL_FAILED, 0, 0);
+        return 0;
+    }
+
+    // --- Run installer silently and exit so it can replace our .exe ---
+    SHELLEXECUTEINFOW sei = {};
+    sei.cbSize = sizeof(sei);
+    sei.fMask  = SEE_MASK_NOCLOSEPROCESS;
+    sei.lpVerb = L"open";
+    sei.lpFile = tempFile;
+    sei.lpParameters = L"/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-";
+    sei.nShow  = SW_HIDE;
+    if (ShellExecuteExW(&sei)) {
+        // Close our own window so the installer can overwrite NepaliDateWidget.exe
+        PostMessage(g_hWnd, WM_CLOSE, 0, 0);
+    } else {
+        PostMessage(g_hWnd, WM_UPDATE_INSTALL_FAILED, 0, 0);
     }
     return 0;
 }
@@ -1965,15 +2076,48 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
     // ── Update notification ──────────────────────────────────────────────────
     case WM_UPDATE_AVAILABLE: {
-        wchar_t msg[256];
-        swprintf(msg, 256, L"A new version (%s) is available!\n\nWould you like to download it?", g_latestVersion);
-        if (MessageBoxW(hWnd, msg, L"Nepali Date Widget \u2014 Update Available",
-                MB_YESNO | MB_ICONINFORMATION) == IDYES) {
-            std::wstring url = GITHUB_RELEASE_URL + std::wstring(g_latestVersion);
-            ShellExecuteW(NULL, L"open", url.c_str(), NULL, NULL, SW_SHOWNORMAL);
+        wchar_t msg[320];
+        swprintf(msg, 320,
+            L"Version %ls is available!\n\n"
+            L"Click 'Update Now' to download and install it automatically in the background.\n"
+            L"The widget will restart after installation.",
+            g_latestVersion);
+        int choice = MessageBoxW(hWnd, msg,
+            L"Nepali Date Widget \u2014 Update Available",
+            MB_YESNO | MB_ICONINFORMATION);
+        if (choice == IDYES) {
+            // Show a non-blocking "downloading" tray balloon / message
+            PostMessage(g_hWnd, WM_UPDATE_DOWNLOADING, 0, 0);
+            // Spawn background download+install thread
+            CloseHandle(CreateThread(NULL, 0, DownloadAndInstallThread, NULL, 0, NULL));
         }
         break;
     }
+
+    case WM_UPDATE_DOWNLOADING: {
+        // Show tray balloon tooltip so user knows it's working
+        NOTIFYICONDATAW nid = {};
+        nid.cbSize = sizeof(nid);
+        nid.hWnd   = hWnd;
+        nid.uID    = 1;
+        nid.uFlags = NIF_INFO;
+        nid.dwInfoFlags = NIIF_INFO;
+        wcscpy_s(nid.szInfoTitle, L"Nepali Date Widget \u2014 Updating");
+        swprintf(nid.szInfo, 256,
+            L"Downloading %ls in the background...\nThe widget will restart automatically.",
+            g_latestVersion);
+        nid.uTimeout = 5000;
+        Shell_NotifyIconW(NIM_MODIFY, &nid);
+        break;
+    }
+
+    case WM_UPDATE_INSTALL_FAILED:
+        MessageBoxW(hWnd,
+            L"Update download failed.\n\nPlease check your internet connection and try again.",
+            L"Nepali Date Widget \u2014 Update Error",
+            MB_OK | MB_ICONERROR);
+        break;
+
     
     case WM_UPDATE_NOT_FOUND:
         MessageBoxW(hWnd, L"You are already running the latest version.", 
