@@ -1,0 +1,42 @@
+﻿name: Update Nepali Holidays Database
+
+on:
+  schedule:
+    # Run at 00:00 UTC on the 1st of every month
+    - cron: '0 0 1 * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+  push:
+    paths:
+      - 'data/generate_data.py'
+      - '.github/workflows/update_holidays.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update-holidays:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Holiday Data Generator
+        run: |
+          python data/generate_data.py
+
+      - name: Commit and Push Changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action [Holidays Bot]"
+          git add data/*.json
+          if git diff --staged --quiet; then
+            echo "No changes in holiday datasets."
+          else
+            git commit -m "Auto-update Nepali calendar holidays and events data [skip ci]"
+            git push origin main
+          fi
