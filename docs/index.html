@@ -82,6 +82,29 @@
                         View Source
                     </a>
                 </div>
+
+                <!-- CLI Quick Install Box -->
+                <div class="cli-install-box">
+                    <div class="cli-header">
+                        <div class="cli-tabs">
+                            <button class="cli-tab active" data-cli="ps">PowerShell</button>
+                            <button class="cli-tab" data-cli="winget">Winget</button>
+                            <button class="cli-tab" data-cli="cmd">CMD</button>
+                        </div>
+                        <button class="cli-copy-btn" id="cliCopyBtn" title="Copy to clipboard">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            <span>Copy</span>
+                        </button>
+                    </div>
+                    <div class="cli-body">
+                        <span class="cli-prompt">&gt;</span>
+                        <div class="cli-code-wrapper">
+                            <code class="cli-code active" id="code-ps">irm https://raw.githubusercontent.com/aayushlbef/Nepali-Date-Widget/main/install.ps1 | iex</code>
+                            <code class="cli-code" id="code-winget">winget install Aayush.NepaliDateWidget</code>
+                            <code class="cli-code" id="code-cmd">powershell -c &quot;irm https://raw.githubusercontent.com/aayushlbef/Nepali-Date-Widget/main/install.ps1 | iex&quot;</code>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Right Side: Floating Widget -->

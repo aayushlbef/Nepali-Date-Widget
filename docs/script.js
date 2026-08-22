@@ -137,6 +137,49 @@ function copyAddress(btn) {
         }
     }
 
+    // === CLI Quick Install Tabs & Copy ===
+    function initCliTabs() {
+        const tabs = document.querySelectorAll('.cli-tab');
+        const copyBtn = document.getElementById('cliCopyBtn');
+
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const target = tab.getAttribute('data-cli');
+                
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                document.querySelectorAll('.cli-code').forEach(code => {
+                    code.classList.remove('active');
+                });
+
+                const activeCode = document.getElementById(`code-${target}`);
+                if (activeCode) {
+                    activeCode.classList.add('active');
+                }
+            });
+        });
+
+        if (copyBtn) {
+            copyBtn.addEventListener('click', () => {
+                const activeCode = document.querySelector('.cli-code.active');
+                if (!activeCode) return;
+
+                const textToCopy = activeCode.textContent.trim();
+                navigator.clipboard.writeText(textToCopy).then(() => {
+                    copyBtn.classList.add('copied');
+                    const span = copyBtn.querySelector('span');
+                    if (span) span.textContent = 'Copied!';
+
+                    setTimeout(() => {
+                        copyBtn.classList.remove('copied');
+                        if (span) span.textContent = 'Copy';
+                    }, 2000);
+                });
+            });
+        }
+    }
+
     // === Initialize ===
     function init() {
         // Force initial scroll state
@@ -159,6 +202,7 @@ function copyAddress(btn) {
         initPerfMeters();
         initSmoothScroll();
         initThemeToggle();
+        initCliTabs();
 
         // Initial calls
         handleNavbarScroll();
