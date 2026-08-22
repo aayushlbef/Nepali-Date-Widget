@@ -7,6 +7,8 @@
 #include <gdiplus.h>
 #include <ctime>
 #include <string>
+#include <vector>
+#include <stdint.h>
 #include <stdio.h>
 #include <shlobj.h>
 
@@ -14,6 +16,8 @@
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "winhttp.lib")
+#pragma comment(lib, "shell32.lib")
 
 using namespace Gdiplus;
 
@@ -24,6 +28,8 @@ using namespace Gdiplus;
 #define WM_UPDATE_AVAILABLE (WM_USER + 2)
 #define WM_UPDATE_NOT_FOUND (WM_USER + 3)
 #define WM_UPDATE_ERROR     (WM_USER + 4)
+#define WM_HOLIDAYS_LOADED  (WM_USER + 5)
+#define WM_HOLIDAYS_FAILED  (WM_USER + 6)
 
 // ── Global State ─────────────────────────────────────────────────────────────
 ULONG_PTR g_gdiplusToken;
@@ -261,10 +267,592 @@ void SetStartupEnabled(bool enable) {
     RegCloseKey(hKey);
 }
 
-// ── Silent Subprocess Execution (Removed) ───────────────────────────────────
-
 // ── Nepali Date Calculator (Pure C++) ────────────────────────────────────────
 #include "bs_data.h"
+
+const wchar_t* kNepaliMonthNamesEN[] = {
+    L"Baisakh", L"Jestha", L"Ashadh", L"Shrawan", L"Bhadra", L"Ashwin",
+    L"Kartik", L"Mangsir", L"Poush", L"Magh", L"Falgun", L"Chaitra"
+};
+
+const wchar_t* kNepaliMonthNamesNP[] = {
+    L"\u092C\u0948\u0936\u093E\u0916",             // Baisakh (बैशाख)
+    L"\u091C\u0947\u0920",                         // Jestha (जेठ)
+    L"\u0905\u0938\u093E\u0930",                   // Ashadh (असार)
+    L"\u0936\u094D\u0930\u093E\u0935\u0923",       // Shrawan (श्रावण)
+    L"\u092D\u0926\u094C",                         // Bhadra (भदौ)
+    L"\u0905\u0938\u094B\u091C",                   // Ashwin (असोज)
+    L"\u0915\u093E\u0930\u094D\u0924\u093F\u0915", // Kartik (कार्तिक)
+    L"\u092E\u0902\u0938\u093F\u0930",             // Mangsir (मंसिर)
+    L"\u092A\u0941\u0937",                         // Poush (पुष)
+    L"\u092E\u093E\u0918",                         // Magh (माघ)
+    L"\u092B\u093E\u0932\u094D\u0917\u0941\u0928", // Falgun (फाल्गुन)
+    L"\u091A\u0948\u0924"                          // Chaitra (चैत)
+};
+
+const wchar_t* kEnglishMonthNames[] = {
+    L"January", L"February", L"March", L"April", L"May", L"June",
+    L"July", L"August", L"September", L"October", L"November", L"December"
+};
+
+const wchar_t* kNepaliDayNamesEN[] = {
+    L"Sunday", L"Monday", L"Tuesday", L"Wednesday", L"Thursday", L"Friday", L"Saturday"
+};
+
+const wchar_t* kNepaliDayNamesNP[] = {
+    L"\u0906\u0907\u0924\u092C\u093E\u0930",  // Sunday (आइतबार)
+    L"\u0938\u094B\u092E\u092C\u093E\u0930",  // Monday (सोमबार)
+    L"\u092E\u0902\u0917\u0932\u092C\u093E\u0930", // Tuesday (मंगलबार)
+    L"\u092C\u0941\u0927\u092C\u093E\u0930",  // Wednesday (बुधबार)
+    L"\u092C\u093F\u0939\u0940\u092C\u093E\u0930", // Thursday (बिहीबार)
+    L"\u0936\u0941\u0915\u094D\u0930\u092C\u093E\u0930", // Friday (शुक्रबार)
+    L"\u0936\u0928\u093F\u092C\u093E\u0930"   // Saturday (शनिबार)
+};
+
+// ── Forward declaration for Calendar window handle ───────────────────────────
+extern HWND g_hCalWnd;
+
+// ── Nepali Public Holidays & Notable Festivals Engine ────────────────────────
+struct NepaliHoliday {
+    int month;          // 1 = Baisakh, ..., 12 = Chaitra
+    int day;            // Day of BS month (1..32)
+    bool isPublicHoliday;
+    std::wstring titleNP;
+    std::wstring titleEN;
+    std::wstring category;
+    std::wstring description;
+};
+
+enum HolidayFetchState {
+    FETCH_IDLE,
+    FETCH_SUCCESS,
+    FETCH_DOWNLOADING,
+    FETCH_ERROR_OFFLINE
+};
+
+#define HOLIDAY_FILE_MAGIC 0x4857444E
+#define HOLIDAY_FILE_VERSION 1
+#define ENCODE_XOR_KEY 0x5A
+
+int g_loadedHolidayYear = 0;
+std::vector<NepaliHoliday> g_currentYearHolidays;
+HolidayFetchState g_holidayFetchState = FETCH_IDLE;
+bool g_isHolidayFetchInProgress = false;
+DWORD g_lastHolidayFetchAttemptTime = 0;
+
+std::string WideToUtf8(const std::wstring& wstr) {
+    if (wstr.empty()) return "";
+    int len = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), NULL, 0, NULL, NULL);
+    std::string str(len, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), &str[0], len, NULL, NULL);
+    return str;
+}
+
+std::wstring Utf8ToWide(const std::string& str) {
+    if (str.empty()) return L"";
+    int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.size(), NULL, 0);
+    std::wstring wstr(len, 0);
+    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.size(), &wstr[0], len);
+    return wstr;
+}
+
+std::wstring GetHolidayCachePath(int bsYear) {
+    wchar_t appDataPath[MAX_PATH];
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, appDataPath))) {
+        std::wstring dir = std::wstring(appDataPath) + L"\\NepaliDateWidget";
+        CreateDirectoryW(dir.c_str(), NULL);
+        return dir + L"\\holidays_" + std::to_wstring(bsYear) + L".dat";
+    }
+    wchar_t path[MAX_PATH];
+    GetModuleFileNameW(NULL, path, MAX_PATH);
+    std::wstring ws(path);
+    size_t pos = ws.find_last_of(L"\\/");
+    if (pos != std::wstring::npos) {
+        ws = ws.substr(0, pos);
+    }
+    return ws + L"\\holidays_" + std::to_wstring(bsYear) + L".dat";
+}
+
+bool SaveEncodedHolidayFile(int bsYear, const std::vector<NepaliHoliday>& holidays) {
+    std::wstring filePath = GetHolidayCachePath(bsYear);
+    FILE* f = _wfopen(filePath.c_str(), L"wb");
+    if (!f) return false;
+
+    uint32_t magic = HOLIDAY_FILE_MAGIC;
+    uint16_t version = HOLIDAY_FILE_VERSION;
+    uint16_t year = (uint16_t)bsYear;
+    uint16_t count = (uint16_t)holidays.size();
+
+    fwrite(&magic, sizeof(magic), 1, f);
+    fwrite(&version, sizeof(version), 1, f);
+    fwrite(&year, sizeof(year), 1, f);
+    fwrite(&count, sizeof(count), 1, f);
+
+    for (const auto& h : holidays) {
+        uint8_t m = (uint8_t)h.month;
+        uint8_t d = (uint8_t)h.day;
+        uint8_t pub = h.isPublicHoliday ? 1 : 0;
+        fwrite(&m, sizeof(m), 1, f);
+        fwrite(&d, sizeof(d), 1, f);
+        fwrite(&pub, sizeof(pub), 1, f);
+
+        auto writeEncStr = [&](const std::wstring& ws) {
+            std::string utf8 = WideToUtf8(ws);
+            uint16_t len = (uint16_t)utf8.size();
+            fwrite(&len, sizeof(len), 1, f);
+            for (size_t i = 0; i < utf8.size(); ++i) {
+                uint8_t b = (uint8_t)utf8[i] ^ ENCODE_XOR_KEY;
+                fwrite(&b, 1, 1, f);
+            }
+        };
+
+        writeEncStr(h.titleNP);
+        writeEncStr(h.titleEN);
+        writeEncStr(h.category);
+        writeEncStr(h.description);
+    }
+    fclose(f);
+    return true;
+}
+
+bool LoadEncodedHolidayFile(int bsYear, std::vector<NepaliHoliday>& outHolidays) {
+    std::wstring filePath = GetHolidayCachePath(bsYear);
+    FILE* f = _wfopen(filePath.c_str(), L"rb");
+    if (!f) return false;
+
+    uint32_t magic = 0;
+    uint16_t version = 0;
+    uint16_t year = 0;
+    uint16_t count = 0;
+
+    if (fread(&magic, sizeof(magic), 1, f) != 1 || magic != HOLIDAY_FILE_MAGIC) { fclose(f); return false; }
+    if (fread(&version, sizeof(version), 1, f) != 1 || version != HOLIDAY_FILE_VERSION) { fclose(f); return false; }
+    if (fread(&year, sizeof(year), 1, f) != 1 || year != bsYear) { fclose(f); return false; }
+    if (fread(&count, sizeof(count), 1, f) != 1) { fclose(f); return false; }
+
+    outHolidays.clear();
+    for (uint16_t i = 0; i < count; ++i) {
+        NepaliHoliday h;
+        uint8_t m = 0, d = 0, pub = 0;
+        if (fread(&m, sizeof(m), 1, f) != 1) break;
+        if (fread(&d, sizeof(d), 1, f) != 1) break;
+        if (fread(&pub, sizeof(pub), 1, f) != 1) break;
+        h.month = m;
+        h.day = d;
+        h.isPublicHoliday = (pub != 0);
+
+        auto readEncStr = [&]() -> std::wstring {
+            uint16_t len = 0;
+            if (fread(&len, sizeof(len), 1, f) != 1) return L"";
+            std::string utf8(len, '\0');
+            for (uint16_t j = 0; j < len; ++j) {
+                uint8_t b = 0;
+                if (fread(&b, 1, 1, f) != 1) break;
+                utf8[j] = (char)(b ^ ENCODE_XOR_KEY);
+            }
+            return Utf8ToWide(utf8);
+        };
+
+        h.titleNP = readEncStr();
+        h.titleEN = readEncStr();
+        h.category = readEncStr();
+        h.description = readEncStr();
+        outHolidays.push_back(h);
+    }
+    fclose(f);
+    return !outHolidays.empty();
+}
+
+bool ParseHolidaysJson(const std::string& json, int expectedYear, std::vector<NepaliHoliday>& outHolidays) {
+    outHolidays.clear();
+    const char* p = json.c_str();
+    const char* holArray = strstr(p, "\"holidays\"");
+    if (!holArray) return false;
+
+    const char* openBracket = strchr(holArray, '[');
+    if (!openBracket) return false;
+
+    p = openBracket + 1;
+    while (*p && *p != ']') {
+        const char* objStart = strchr(p, '{');
+        if (!objStart) break;
+        const char* objEnd = strchr(objStart, '}');
+        if (!objEnd) break;
+
+        std::string obj(objStart, objEnd - objStart + 1);
+        NepaliHoliday h;
+        h.month = 0;
+        h.day = 0;
+        h.isPublicHoliday = false;
+
+        const char* mStr = strstr(obj.c_str(), "\"month\"");
+        if (mStr) {
+            mStr += 7;
+            while (*mStr == ' ' || *mStr == ':') mStr++;
+            h.month = atoi(mStr);
+        }
+
+        const char* dStr = strstr(obj.c_str(), "\"day\"");
+        if (dStr) {
+            dStr += 5;
+            while (*dStr == ' ' || *dStr == ':') dStr++;
+            h.day = atoi(dStr);
+        }
+
+        const char* pubStr = strstr(obj.c_str(), "\"isPublicHoliday\"");
+        if (pubStr) {
+            pubStr += 17;
+            while (*pubStr == ' ' || *pubStr == ':') pubStr++;
+            if (strncmp(pubStr, "true", 4) == 0) h.isPublicHoliday = true;
+        }
+
+        auto extractStr = [](const std::string& src, const char* key) -> std::wstring {
+            std::string searchKey = std::string("\"") + key + "\"";
+            const char* kPos = strstr(src.c_str(), searchKey.c_str());
+            if (!kPos) return L"";
+            kPos += searchKey.size();
+            while (*kPos == ' ' || *kPos == ':') kPos++;
+            if (*kPos != '"') return L"";
+            kPos++;
+
+            std::string val = "";
+            while (*kPos && *kPos != '"') {
+                if (*kPos == '\\' && *(kPos + 1)) {
+                    kPos++;
+                    if (*kPos == 'u' && isxdigit(*(kPos+1)) && isxdigit(*(kPos+2)) && isxdigit(*(kPos+3)) && isxdigit(*(kPos+4))) {
+                        char hex[5] = { *(kPos+1), *(kPos+2), *(kPos+3), *(kPos+4), 0 };
+                        wchar_t wc = (wchar_t)strtol(hex, NULL, 16);
+                        wchar_t tempW[2] = { wc, 0 };
+                        char tempUtf8[8] = { 0 };
+                        WideCharToMultiByte(CP_UTF8, 0, tempW, 1, tempUtf8, sizeof(tempUtf8), NULL, NULL);
+                        val += tempUtf8;
+                        kPos += 4;
+                    } else if (*kPos == 'n') {
+                        val += '\n';
+                    } else if (*kPos == 't') {
+                        val += '\t';
+                    } else if (*kPos == '"') {
+                        val += '"';
+                    } else if (*kPos == '\\') {
+                        val += '\\';
+                    } else {
+                        val += *kPos;
+                    }
+                } else {
+                    val += *kPos;
+                }
+                kPos++;
+            }
+            return Utf8ToWide(val);
+        };
+
+        h.titleNP = extractStr(obj, "titleNP");
+        h.titleEN = extractStr(obj, "titleEN");
+        h.category = extractStr(obj, "category");
+        h.description = extractStr(obj, "description");
+
+        if (h.month >= 1 && h.month <= 12 && h.day >= 1 && h.day <= 32) {
+            outHolidays.push_back(h);
+        }
+
+        p = objEnd + 1;
+    }
+
+    return !outHolidays.empty();
+}
+
+bool HttpDownloadString(const wchar_t* host, const wchar_t* path, std::string& outBody) {
+    HINTERNET hSession = WinHttpOpen(L"NepaliDateWidget/" APP_VERSION,
+        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) return false;
+
+    // Fast timeouts so offline / DNS failures return quickly and never freeze threads
+    WinHttpSetTimeouts(hSession, 2000, 2500, 3000, 3000);
+
+    HINTERNET hConnect = WinHttpConnect(hSession, host, INTERNET_DEFAULT_HTTPS_PORT, 0);
+    if (!hConnect) {
+        WinHttpCloseHandle(hSession);
+        return false;
+    }
+
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", path,
+        NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+    if (!hRequest) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return false;
+    }
+
+    bool success = false;
+    if (WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+        WinHttpReceiveResponse(hRequest, NULL)) {
+        
+        DWORD statusCode = 0;
+        DWORD statusSize = sizeof(statusCode);
+        WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                            WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &statusSize, WINHTTP_NO_HEADER_INDEX);
+
+        if (statusCode == 200) {
+            std::string response;
+            char buf[4096];
+            DWORD bytesRead = 0;
+            while (WinHttpReadData(hRequest, buf, sizeof(buf) - 1, &bytesRead) && bytesRead > 0) {
+                buf[bytesRead] = 0;
+                response.append(buf, bytesRead);
+                bytesRead = 0;
+            }
+            if (!response.empty()) {
+                outBody = response;
+                success = true;
+            }
+        }
+    }
+
+    WinHttpCloseHandle(hRequest);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+    return success;
+}
+
+DWORD WINAPI FetchHolidaysThread(LPVOID lpParam) {
+    int bsYear = (int)(INT_PTR)lpParam;
+    g_isHolidayFetchInProgress = true;
+    g_holidayFetchState = FETCH_DOWNLOADING;
+    g_lastHolidayFetchAttemptTime = GetTickCount();
+
+    std::string jsonBody;
+    bool downloaded = false;
+
+    // 1. Try primary GitHub raw URL
+    std::wstring path1 = L"/aayushlbef/Nepali-Date-Widget/main/data/holidays_" + std::to_wstring(bsYear) + L".json";
+    if (HttpDownloadString(L"raw.githubusercontent.com", path1.c_str(), jsonBody)) {
+        downloaded = true;
+    }
+
+    // 2. Try secondary jsDelivr CDN
+    if (!downloaded) {
+        std::wstring path2 = L"/gh/aayushlbef/Nepali-Date-Widget@main/data/holidays_" + std::to_wstring(bsYear) + L".json";
+        if (HttpDownloadString(L"cdn.jsdelivr.net", path2.c_str(), jsonBody)) {
+            downloaded = true;
+        }
+    }
+
+    // 3. Fallback: check local data/ folder if shipped or running locally
+    if (!downloaded) {
+        wchar_t exePath[MAX_PATH];
+        GetModuleFileNameW(NULL, exePath, MAX_PATH);
+        std::wstring ws(exePath);
+        size_t pos = ws.find_last_of(L"\\/");
+        if (pos != std::wstring::npos) ws = ws.substr(0, pos);
+        std::wstring localJsonPath = ws + L"\\data\\holidays_" + std::to_wstring(bsYear) + L".json";
+        
+        FILE* f = _wfopen(localJsonPath.c_str(), L"rb");
+        if (f) {
+            fseek(f, 0, SEEK_END);
+            long sz = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            if (sz > 0) {
+                jsonBody.resize(sz);
+                fread(&jsonBody[0], 1, sz, f);
+                downloaded = true;
+            }
+            fclose(f);
+        }
+    }
+
+    if (downloaded) {
+        std::vector<NepaliHoliday> parsed;
+        if (ParseHolidaysJson(jsonBody, bsYear, parsed)) {
+            SaveEncodedHolidayFile(bsYear, parsed);
+            g_currentYearHolidays = parsed;
+            g_loadedHolidayYear = bsYear;
+            g_holidayFetchState = FETCH_SUCCESS;
+            g_isHolidayFetchInProgress = false;
+            if (g_hWnd) PostMessage(g_hWnd, WM_HOLIDAYS_LOADED, (WPARAM)bsYear, 0);
+            return 0;
+        }
+    }
+
+    // Failed to download and not available in cache
+    g_holidayFetchState = FETCH_ERROR_OFFLINE;
+    g_isHolidayFetchInProgress = false;
+    if (g_hWnd) PostMessage(g_hWnd, WM_HOLIDAYS_FAILED, (WPARAM)bsYear, 0);
+    return 0;
+}
+
+void EnsureHolidaysLoadedForCurrentYear(int bsYear, bool forceRefresh = false) {
+    if (!forceRefresh && g_loadedHolidayYear == bsYear && g_holidayFetchState == FETCH_SUCCESS) {
+        return;
+    }
+
+    // 1. Try encoded cache file first if not force refresh
+    if (!forceRefresh) {
+        std::vector<NepaliHoliday> cached;
+        if (LoadEncodedHolidayFile(bsYear, cached)) {
+            g_currentYearHolidays = cached;
+            g_loadedHolidayYear = bsYear;
+            g_holidayFetchState = FETCH_SUCCESS;
+            return;
+        }
+    }
+
+    // 2. Prevent multiple concurrent fetch threads
+    if (g_isHolidayFetchInProgress) {
+        return;
+    }
+
+    // 3. If offline failure already occurred and not force refresh, rate-limit retries (30-second cooldown)
+    if (!forceRefresh && g_holidayFetchState == FETCH_ERROR_OFFLINE) {
+        DWORD now = GetTickCount();
+        if (now - g_lastHolidayFetchAttemptTime < 30000) {
+            return;
+        }
+    }
+
+    g_lastHolidayFetchAttemptTime = GetTickCount();
+    HANDLE hThread = CreateThread(NULL, 0, FetchHolidaysThread, (LPVOID)(INT_PTR)bsYear, 0, NULL);
+    if (hThread) CloseHandle(hThread);
+}
+
+const NepaliHoliday* GetHolidayForBS(int bsYear, int bsMonth, int bsDay) {
+    if (g_holidayFetchState != FETCH_SUCCESS || g_loadedHolidayYear != bsYear) {
+        return NULL;
+    }
+    for (size_t i = 0; i < g_currentYearHolidays.size(); ++i) {
+        if (g_currentYearHolidays[i].month == bsMonth && g_currentYearHolidays[i].day == bsDay) {
+            return &g_currentYearHolidays[i];
+        }
+    }
+    return NULL;
+}
+
+inline int GetBSDaysInMonth(int bsYear, int bsMonth) {
+    if (bsYear < 1975 || bsYear > 2100 || bsMonth < 1 || bsMonth > 12) return 30;
+    return bs_month_days[bsYear - 1975][bsMonth - 1];
+}
+
+inline long long BSToDaysSinceEpoch(int bsYear, int bsMonth, int bsDay) {
+    if (bsYear < 1975 || bsYear > 2100 || bsMonth < 1 || bsMonth > 12) return -1;
+    long long days = 0;
+    for (int y = 1975; y < bsYear; ++y) {
+        for (int m = 0; m < 12; ++m) {
+            days += bs_month_days[y - 1975][m];
+        }
+    }
+    for (int m = 1; m < bsMonth; ++m) {
+        days += bs_month_days[bsYear - 1975][m - 1];
+    }
+    days += (bsDay - 1);
+    return days;
+}
+
+inline int GetBSMonthStartDayOfWeek(int bsYear, int bsMonth) {
+    long long days = BSToDaysSinceEpoch(bsYear, bsMonth, 1);
+    if (days < 0) return 0;
+    return (int)((6 + days) % 7); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+}
+
+inline bool BSToAD(int bsYear, int bsMonth, int bsDay, int& adYear, int& adMonth, int& adDay, int& outDayOfWeek) {
+    long long days = BSToDaysSinceEpoch(bsYear, bsMonth, bsDay);
+    if (days < 0) return false;
+    outDayOfWeek = (int)((6 + days) % 7);
+
+    SYSTEMTIME stRef = { 0 };
+    stRef.wYear = 1918;
+    stRef.wMonth = 4;
+    stRef.wDay = 13;
+    FILETIME ftRef;
+    SystemTimeToFileTime(&stRef, &ftRef);
+
+    ULARGE_INTEGER uRef;
+    uRef.LowPart = ftRef.dwLowDateTime;
+    uRef.HighPart = ftRef.dwHighDateTime;
+    uRef.QuadPart += (ULONGLONG)days * 864000000000ULL;
+
+    FILETIME ftTarget;
+    ftTarget.dwLowDateTime = uRef.LowPart;
+    ftTarget.dwHighDateTime = uRef.HighPart;
+    SYSTEMTIME stTarget;
+    FileTimeToSystemTime(&ftTarget, &stTarget);
+
+    adYear = stTarget.wYear;
+    adMonth = stTarget.wMonth;
+    adDay = stTarget.wDay;
+    return true;
+}
+
+inline bool ADToBS(int adYear, int adMonth, int adDay, int& bsYear, int& bsMonth, int& bsDay, int& outDayOfWeek) {
+    SYSTEMTIME stNow = { 0 };
+    stNow.wYear = (WORD)adYear;
+    stNow.wMonth = (WORD)adMonth;
+    stNow.wDay = (WORD)adDay;
+    FILETIME ftNow;
+    SystemTimeToFileTime(&stNow, &ftNow);
+
+    SYSTEMTIME stRef = { 0 };
+    stRef.wYear = 1918;
+    stRef.wMonth = 4;
+    stRef.wDay = 13;
+    FILETIME ftRef;
+    SystemTimeToFileTime(&stRef, &ftRef);
+
+    ULARGE_INTEGER uNow, uRef;
+    uNow.LowPart = ftNow.dwLowDateTime;
+    uNow.HighPart = ftNow.dwHighDateTime;
+    uRef.LowPart = ftRef.dwLowDateTime;
+    uRef.HighPart = ftRef.dwHighDateTime;
+
+    if (uNow.QuadPart < uRef.QuadPart) return false;
+    long long diff = uNow.QuadPart - uRef.QuadPart;
+    long long days = diff / 864000000000LL;
+    outDayOfWeek = (int)((6 + days) % 7);
+
+    int y = 1975;
+    int m = 1;
+    int d = 1;
+
+    while (y <= 2100) {
+        int dim = bs_month_days[y - 1975][m - 1];
+        if (days >= dim) {
+            days -= dim;
+            m++;
+            if (m > 12) {
+                m = 1;
+                y++;
+            }
+        } else {
+            break;
+        }
+    }
+    d += (int)days;
+    if (y > 2100) return false;
+
+    bsYear = y;
+    bsMonth = m;
+    bsDay = d;
+    return true;
+}
+
+inline void GetCurrentBSDate(int& outYear, int& outMonth, int& outDay, int& outDayOfWeek) {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    ADToBS(st.wYear, st.wMonth, st.wDay, outYear, outMonth, outDay, outDayOfWeek);
+}
+
+inline std::wstring ToDevanagariNum(int num) {
+    static const wchar_t devanagariDigits[] = { L'०', L'१', L'२', L'३', L'४', L'५', L'६', L'७', L'८', L'९' };
+    wchar_t buf[32];
+    swprintf(buf, 32, L"%d", num);
+    std::wstring result = L"";
+    for (int i = 0; buf[i] != 0; ++i) {
+        if (buf[i] >= L'0' && buf[i] <= L'9') {
+            result += devanagariDigits[buf[i] - L'0'];
+        } else {
+            result += buf[i];
+        }
+    }
+    return result;
+}
 
 std::wstring GetNepaliDateString() {
     static WORD s_lastDay = 0, s_lastMonth = 0, s_lastYear = 0;
@@ -273,7 +861,7 @@ std::wstring GetNepaliDateString() {
     SYSTEMTIME st;
     GetLocalTime(&st);
     
-    // Ultimate minimal resource check: only recalculate if the day has changed!
+    // Minimal resource check: only recalculate if the day has changed!
     if (st.wDay == s_lastDay && st.wMonth == s_lastMonth && st.wYear == s_lastYear && !s_cachedDateStr.empty()) {
         return s_cachedDateStr;
     }
@@ -282,52 +870,9 @@ std::wstring GetNepaliDateString() {
     s_lastMonth = st.wMonth;
     s_lastYear = st.wYear;
     
-    // Calculate days since 1918-04-13 (BS 1975-01-01)
-    FILETIME ftNow, ftRef;
-    SystemTimeToFileTime(&st, &ftNow);
-    
-    SYSTEMTIME stRef = {0};
-    stRef.wYear = 1918;
-    stRef.wMonth = 4;
-    stRef.wDay = 13;
-    SystemTimeToFileTime(&stRef, &ftRef);
-    
-    ULARGE_INTEGER uNow, uRef;
-    uNow.LowPart = ftNow.dwLowDateTime;
-    uNow.HighPart = ftNow.dwHighDateTime;
-    uRef.LowPart = ftRef.dwLowDateTime;
-    uRef.HighPart = ftRef.dwHighDateTime;
-    
-    // Number of 100-nanosecond intervals per day = 10,000,000 * 60 * 60 * 24 = 864,000,000,000
-    long long diff = uNow.QuadPart - uRef.QuadPart;
-    int days = (int)(diff / 864000000000LL);
-    
-    if (days < 0) {
+    int bs_year, bs_month, bs_day, bs_dow;
+    if (!ADToBS(st.wYear, st.wMonth, st.wDay, bs_year, bs_month, bs_day, bs_dow)) {
         return L"Date Error";
-    }
-
-    int bs_year = 1975;
-    int bs_month = 1;
-    int bs_day = 1;
-    
-    while (bs_year <= 2100) {
-        int days_in_month = bs_month_days[bs_year - 1975][bs_month - 1];
-        if (days >= days_in_month) {
-            days -= days_in_month;
-            bs_month++;
-            if (bs_month > 12) {
-                bs_month = 1;
-                bs_year++;
-            }
-        } else {
-            break;
-        }
-    }
-    bs_day += days;
-    
-    if (bs_year > 2100) {
-        s_cachedDateStr = L"Date Error";
-        return s_cachedDateStr;
     }
     
     wchar_t buffer[64];
@@ -337,8 +882,837 @@ std::wstring GetNepaliDateString() {
     return s_cachedDateStr;
 }
 
+// ── Shared Drawing Helpers ───────────────────────────────────────────────────
+void AddRoundedRectangle(GraphicsPath& path, REAL x, REAL y, REAL w, REAL h, REAL r) {
+    REAL d = r * 2.0f;
+    if (d > w) d = w;
+    if (d > h) d = h;
+    path.AddArc(x, y, d, d, 180, 90);
+    path.AddArc(x + w - d, y, d, d, 270, 90);
+    path.AddArc(x + w - d, y + h - d, d, d, 0, 90);
+    path.AddArc(x, y + h - d, d, d, 90, 90);
+    path.CloseFigure();
+}
+
+void DrawNepaliFlag(Graphics& graphics, REAL cx, REAL top, REAL h) {
+    REAL flagWidth = 0.822f * h;
+    SolidBrush blueBrush(Color(255, 0, 56, 147));
+    SolidBrush crimsonBrush(Color(255, 220, 20, 60));
+    SolidBrush whiteBrush(Color(255, 255, 255, 255));
+
+    PointF polyOuter[5] = {
+        PointF(cx, top),
+        PointF(cx + 0.765f * h, top + 0.543f * h),
+        PointF(cx + 0.266f * h, top + 0.543f * h),
+        PointF(cx + 0.822f * h, top + h),
+        PointF(cx, top + h)
+    };
+    graphics.FillPolygon(&blueBrush, polyOuter, 5);
+
+    PointF polyInner[5] = {
+        PointF(cx + 0.042f * h, top + 0.073f * h),
+        PointF(cx + 0.674f * h, top + 0.501f * h),
+        PointF(cx + 0.232f * h, top + 0.501f * h),
+        PointF(cx + 0.715f * h, top + 0.958f * h),
+        PointF(cx + 0.042f * h, top + 0.958f * h)
+    };
+    graphics.FillPolygon(&crimsonBrush, polyInner, 5);
+    
+    // Moon
+    REAL moonOuterDiam = 0.20f * h;
+    REAL moonOuterX = cx + 0.22f * h - (moonOuterDiam / 2.0f);
+    REAL moonOuterY = top + 0.32f * h - (moonOuterDiam / 2.0f);
+    graphics.FillEllipse(&whiteBrush, moonOuterX, moonOuterY, moonOuterDiam, moonOuterDiam);
+    
+    REAL moonInnerDiam = 0.18f * h;
+    REAL moonInnerX = moonOuterX + 0.01f * h;
+    REAL moonInnerY = moonOuterY - 0.04f * h;
+    graphics.FillEllipse(&crimsonBrush, moonInnerX, moonInnerY, moonInnerDiam, moonInnerDiam);
+    
+    REAL moonStarDiam = 0.09f * h;
+    REAL moonStarX = cx + 0.22f * h - (moonStarDiam / 2.0f);
+    REAL moonStarY = top + 0.33f * h - (moonStarDiam / 2.0f);
+    graphics.FillEllipse(&whiteBrush, moonStarX, moonStarY, moonStarDiam, moonStarDiam);
+
+    // Sun
+    REAL sunDiam = 0.18f * h;
+    REAL sunX = cx + 0.26f * h - (sunDiam / 2.0f);
+    REAL sunY = top + 0.73f * h - (sunDiam / 2.0f);
+    graphics.FillEllipse(&whiteBrush, sunX, sunY, sunDiam, sunDiam);
+}
+
+void DrawIconButton(Graphics& graphics, const RectF& rect, const wchar_t* text, bool isHovered, bool isLight, Font& font) {
+    GraphicsPath path;
+    AddRoundedRectangle(path, rect.X, rect.Y, rect.Width, rect.Height, 6.0f * g_dpiScale);
+    
+    if (isHovered) {
+        SolidBrush hoverBg(isLight ? Color(35, 0, 0, 0) : Color(45, 255, 255, 255));
+        graphics.FillPath(&hoverBg, &path);
+        Pen hoverBorder(isLight ? Color(70, 0, 0, 0) : Color(70, 255, 255, 255), 1.0f);
+        graphics.DrawPath(&hoverBorder, &path);
+    } else {
+        SolidBrush normalBg(isLight ? Color(15, 0, 0, 0) : Color(20, 255, 255, 255));
+        graphics.FillPath(&normalBg, &path);
+    }
+
+    SolidBrush textBrush(isLight ? (isHovered ? Color(255, 0, 0, 0) : Color(220, 40, 40, 40))
+                                 : (isHovered ? Color(255, 255, 255, 255) : Color(220, 220, 220, 220)));
+    StringFormat format;
+    format.SetAlignment(StringAlignmentCenter);
+    format.SetLineAlignment(StringAlignmentCenter);
+    graphics.DrawString(text, -1, &font, rect, &format, &textBrush);
+}
+
+// ── Calendar Popup State & Engine ────────────────────────────────────────────
+HWND g_hCalWnd = NULL;
+bool g_isCalendarOpen = false;
+DWORD g_lastCalCloseTime = 0;
+int g_calX = 0, g_calY = 0;
+int g_calYear = 2082;
+int g_calMonth = 11;
+int g_calSelectedDay = 9;
+int g_hoveredBtn = -1;
+int g_hoveredCell = -1;
+bool g_hasDragged = false;
+
+enum CalendarButtonId {
+    BTN_NONE = -1,
+    BTN_PREV_MONTH = 102,
+    BTN_NEXT_MONTH = 103,
+    BTN_TODAY = 105,
+    BTN_CLOSE = 106,
+    BTN_RETRY_FETCH = 107
+};
+
+void HideCalendar();
+void ShowCalendar(HWND hWidgetWnd);
+void ToggleCalendar(HWND hWidgetWnd);
+
+void RenderCalendar(HWND hWnd) {
+    if (!hWnd) return;
+
+    // Enforce calendar strictly to current BS year
+    int curBSY = 0, curBSM = 0, curBSD = 0, curBSDOW = 0;
+    GetCurrentBSDate(curBSY, curBSM, curBSD, curBSDOW);
+    g_calYear = curBSY;
+
+    if (g_calMonth < 1) g_calMonth = 1;
+    if (g_calMonth > 12) g_calMonth = 12;
+
+    int totalD = GetBSDaysInMonth(g_calYear, g_calMonth);
+    if (g_calSelectedDay < 1) g_calSelectedDay = 1;
+    if (g_calSelectedDay > totalD) g_calSelectedDay = totalD;
+
+    EnsureHolidaysLoadedForCurrentYear(g_calYear);
+
+    const NepaliHoliday* selHoliday = GetHolidayForBS(g_calYear, g_calMonth, g_calSelectedDay);
+    bool isOfflineMode = (g_holidayFetchState == FETCH_ERROR_OFFLINE && g_currentYearHolidays.empty());
+    bool isDownloading = (g_holidayFetchState == FETCH_DOWNLOADING && g_currentYearHolidays.empty());
+    bool hasEvent = (selHoliday != NULL || isOfflineMode || isDownloading);
+
+    int baseW = 420;
+    int baseH = 440;
+    float s = g_dpiScale;
+
+    float flyoutW = 380.0f;
+    float flyoutH = 290.0f;
+    float arrowW = 12.0f;
+
+    int rawW = (int)((hasEvent ? (baseW + arrowW + flyoutW + 12.0f) : baseW) * g_dpiScale);
+    int rawH = (int)(baseH * g_dpiScale);
+
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = rawW;
+    bmi.bmiHeader.biHeight = -rawH;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    void* pBits = NULL;
+    HBITMAP hBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pBits, NULL, 0);
+    HBITMAP hOldBitmap = (HBITMAP)SelectObject(hdcMem, hBitmap);
+
+    Graphics graphics(hdcMem);
+    graphics.SetSmoothingMode(SmoothingModeHighQuality);
+    graphics.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
+    graphics.SetPixelOffsetMode(PixelOffsetModeHighQuality);
+    graphics.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+    graphics.Clear(Color(0, 0, 0, 0));
+
+    // 1. Background Card (Dark/Light Theme) - Opaque background for Calendar
+    GraphicsPath cardPath;
+    AddRoundedRectangle(cardPath, 1.0f * s, 1.0f * s, (baseW - 2.0f) * s, (baseH - 2.0f) * s, 14.0f * s);
+    
+    if (g_isLightTheme) {
+        SolidBrush cardBrush(Color(255, 255, 255, 255));
+        graphics.FillPath(&cardBrush, &cardPath);
+        Pen cardPen(Color(50, 0, 0, 0), 1.0f * s);
+        graphics.DrawPath(&cardPen, &cardPath);
+    } else {
+        SolidBrush cardBrush(Color(255, 30, 30, 36));
+        graphics.FillPath(&cardBrush, &cardPath);
+        Pen cardPen(Color(65, 255, 255, 255), 1.0f * s);
+        graphics.DrawPath(&cardPen, &cardPath);
+    }
+
+    FontFamily fontFamily(L"Segoe UI");
+    Font fontTitle(&fontFamily, 14.0f * s, FontStyleBold, UnitPixel);
+    Font fontSubTitle(&fontFamily, 11.0f * s, FontStyleRegular, UnitPixel);
+    Font fontButton(&fontFamily, 12.0f * s, FontStyleBold, UnitPixel);
+    Font fontNavTitle(&fontFamily, 15.5f * s, FontStyleBold, UnitPixel);
+    Font fontNavSub(&fontFamily, 11.5f * s, FontStyleRegular, UnitPixel);
+    Font fontDayHeader(&fontFamily, 12.5f * s, FontStyleBold, UnitPixel);
+    Font fontBSDay(&fontFamily, 16.5f * s, FontStyleBold, UnitPixel);
+    Font fontADDay(&fontFamily, 11.0f * s, FontStyleRegular, UnitPixel);
+    Font fontDetailL1(&fontFamily, 16.5f * s, FontStyleBold, UnitPixel);
+    Font fontDetailL2(&fontFamily, 13.0f * s, FontStyleBold, UnitPixel);
+    Font fontDetailL3(&fontFamily, 12.5f * s, FontStyleRegular, UnitPixel);
+    Font fontBadge(&fontFamily, 10.0f * s, FontStyleBold, UnitPixel);
+
+    StringFormat formatNear, formatCenter, formatFar;
+    formatNear.SetAlignment(StringAlignmentNear);
+    formatNear.SetLineAlignment(StringAlignmentCenter);
+    formatCenter.SetAlignment(StringAlignmentCenter);
+    formatCenter.SetLineAlignment(StringAlignmentCenter);
+    formatFar.SetAlignment(StringAlignmentFar);
+    formatFar.SetLineAlignment(StringAlignmentCenter);
+
+    // 2. Top Header (Flag + Title + Today Button + Close Button)
+    DrawNepaliFlag(graphics, 18.0f * s, 16.0f * s, 26.0f * s);
+
+    SolidBrush textPrimary(g_isLightTheme ? Color(255, 20, 20, 20) : Color(255, 255, 255, 255));
+    SolidBrush textSubtle(g_isLightTheme ? Color(180, 100, 100, 100) : Color(180, 170, 170, 175));
+    SolidBrush crimsonText(Color(255, 235, 35, 65));
+
+    RectF titleRect(48.0f * s, 14.0f * s, 240.0f * s, 18.0f * s);
+    graphics.DrawString(L"Nepali Calendar", -1, &fontTitle, titleRect, &formatNear, &textPrimary);
+
+    RectF subTitleRect(48.0f * s, 33.0f * s, 240.0f * s, 16.0f * s);
+    graphics.DrawString(L"\u0928\u0947\u092A\u093E\u0932\u0940 \u092A\u093E\u0924\u094D\u0930\u094B \u2022 Bikram Sambat", -1, &fontSubTitle, subTitleRect, &formatNear, &textSubtle);
+
+    RectF todayBtnRect(300.0f * s, 14.0f * s, 68.0f * s, 30.0f * s);
+    DrawIconButton(graphics, todayBtnRect, L"Today", g_hoveredBtn == BTN_TODAY, g_isLightTheme, fontButton);
+
+    RectF closeBtnRect(374.0f * s, 14.0f * s, 30.0f * s, 30.0f * s);
+    DrawIconButton(graphics, closeBtnRect, L"\u2715", g_hoveredBtn == BTN_CLOSE, g_isLightTheme, fontButton);
+
+    // 3. Navigation Bar (< Prev Month, Month Year, Next Month >) - Year buttons removed
+    RectF prevMonthRect(18.0f * s, 60.0f * s, 36.0f * s, 34.0f * s);
+    DrawIconButton(graphics, prevMonthRect, L"\u2039", g_hoveredBtn == BTN_PREV_MONTH, g_isLightTheme, fontButton);
+
+    RectF nextMonthRect(366.0f * s, 60.0f * s, 36.0f * s, 34.0f * s);
+    DrawIconButton(graphics, nextMonthRect, L"\u203A", g_hoveredBtn == BTN_NEXT_MONTH, g_isLightTheme, fontButton);
+
+    // Month & Year title strings (Centered cleanly)
+    int mIdx = g_calMonth - 1;
+    if (mIdx < 0) mIdx = 0;
+    if (mIdx > 11) mIdx = 11;
+    
+    std::wstring navTitle = std::wstring(kNepaliMonthNamesEN[mIdx]) + L" " + std::to_wstring(g_calYear) +
+                            L"  \u2022  " + kNepaliMonthNamesNP[mIdx] + L" " + ToDevanagariNum(g_calYear);
+
+    RectF navTitleRect(58.0f * s, 58.0f * s, 304.0f * s, 22.0f * s);
+    graphics.DrawString(navTitle.c_str(), -1, &fontNavTitle, navTitleRect, &formatCenter, &textPrimary);
+
+    // Gregorian Range
+    int adY1 = 0, adM1 = 0, adD1 = 0, adDow1 = 0;
+    int adY2 = 0, adM2 = 0, adD2 = 0, adDow2 = 0;
+    BSToAD(g_calYear, g_calMonth, 1, adY1, adM1, adD1, adDow1);
+    BSToAD(g_calYear, g_calMonth, totalD, adY2, adM2, adD2, adDow2);
+
+    std::wstring gregRange;
+    if (adM1 == adM2) {
+        gregRange = std::wstring(kEnglishMonthNames[adM1 - 1]) + L" " + std::to_wstring(adD1) + L" - " + std::to_wstring(adD2) + L", " + std::to_wstring(adY1);
+    } else if (adY1 == adY2) {
+        gregRange = std::wstring(kEnglishMonthNames[adM1 - 1]) + L" " + std::to_wstring(adD1) + L" - " +
+                    kEnglishMonthNames[adM2 - 1] + L" " + std::to_wstring(adD2) + L", " + std::to_wstring(adY1);
+    } else {
+        gregRange = std::wstring(kEnglishMonthNames[adM1 - 1]) + L" " + std::to_wstring(adD1) + L", " + std::to_wstring(adY1) + L" - " +
+                    kEnglishMonthNames[adM2 - 1] + L" " + std::to_wstring(adD2) + L", " + std::to_wstring(adY2);
+    }
+
+    RectF navSubRect(58.0f * s, 80.0f * s, 304.0f * s, 16.0f * s);
+    graphics.DrawString(gregRange.c_str(), -1, &fontNavSub, navSubRect, &formatCenter, &textSubtle);
+
+    // 4. Day of Week Header Bar (Saturday is Nepal's weekly public holiday)
+    const wchar_t* shortDays[] = { L"Sun", L"Mon", L"Tue", L"Wed", L"Thu", L"Fri", L"Sat" };
+    for (int c = 0; c < 7; ++c) {
+        RectF colRect((18.0f + c * 55.0f) * s, 106.0f * s, 52.0f * s, 26.0f * s);
+        GraphicsPath pillPath;
+        AddRoundedRectangle(pillPath, colRect.X, colRect.Y, colRect.Width, colRect.Height, 5.0f * s);
+        SolidBrush pillBg(g_isLightTheme ? Color(15, 0, 0, 0) : Color(20, 255, 255, 255));
+        graphics.FillPath(&pillBg, &pillPath);
+
+        if (c == 0 || c == 6) { // Sunday & Saturday marked as public holidays
+            graphics.DrawString(shortDays[c], -1, &fontDayHeader, colRect, &formatCenter, &crimsonText);
+        } else {
+            graphics.DrawString(shortDays[c], -1, &fontDayHeader, colRect, &formatCenter, &textPrimary);
+        }
+    }
+
+    // 5. Calendar Day Grid (6 rows x 7 cols)
+    int startDow = GetBSMonthStartDayOfWeek(g_calYear, g_calMonth);
+    REAL selectedCellCenterY = 0;
+
+    for (int r = 0; r < 6; ++r) {
+        for (int c = 0; c < 7; ++c) {
+            int cellIdx = r * 7 + c;
+            int dayNum = cellIdx - startDow + 1;
+            RectF cellRect((18.0f + c * 55.0f) * s, (138.0f + r * 48.0f) * s, 52.0f * s, 44.0f * s);
+
+            if (dayNum >= 1 && dayNum <= totalD) {
+                bool isToday = (g_calYear == curBSY && g_calMonth == curBSM && dayNum == curBSD);
+                bool isSelected = (g_calSelectedDay == dayNum);
+                bool isHovered = (g_hoveredCell == cellIdx);
+
+                if (isSelected) {
+                    selectedCellCenterY = cellRect.Y + cellRect.Height / 2.0f;
+                }
+
+                const NepaliHoliday* holiday = GetHolidayForBS(g_calYear, g_calMonth, dayNum);
+                bool isHoliday = (c == 0 || c == 6 || (holiday != NULL && holiday->isPublicHoliday));
+                bool hasDayEvent = (holiday != NULL);
+
+                int cellAdY = 0, cellAdM = 0, cellAdD = 0, cellAdDow = 0;
+                BSToAD(g_calYear, g_calMonth, dayNum, cellAdY, cellAdM, cellAdD, cellAdDow);
+
+                GraphicsPath cellPath;
+                AddRoundedRectangle(cellPath, cellRect.X, cellRect.Y, cellRect.Width, cellRect.Height, 8.0f * s);
+
+                if (isToday) {
+                    SolidBrush todayBg(isHovered ? Color(255, 245, 40, 80) : Color(255, 220, 20, 60));
+                    graphics.FillPath(&todayBg, &cellPath);
+                    if (isSelected) {
+                        Pen selPen(Color(255, 255, 255, 255), 1.5f * s);
+                        graphics.DrawPath(&selPen, &cellPath);
+                    }
+                } else if (isSelected) {
+                    SolidBrush selBg(g_isLightTheme ? Color(40, 0, 56, 147) : Color(60, 0, 56, 147));
+                    graphics.FillPath(&selBg, &cellPath);
+                    Pen selPen(Color(255, 0, 80, 200), 1.5f * s);
+                    graphics.DrawPath(&selPen, &cellPath);
+                } else if (isHovered) {
+                    SolidBrush hovBg(g_isLightTheme ? Color(25, 0, 0, 0) : Color(35, 255, 255, 255));
+                    graphics.FillPath(&hovBg, &cellPath);
+                }
+
+                // BS Day Text (Larger, crisp rendering)
+                std::wstring bsDayStr = std::to_wstring(dayNum);
+
+                RectF bsTextRect(cellRect.X + 5.0f * s, cellRect.Y + 3.0f * s, 30.0f * s, 22.0f * s);
+                if (isToday) {
+                    SolidBrush whiteText(Color(255, 255, 255, 255));
+                    graphics.DrawString(bsDayStr.c_str(), -1, &fontBSDay, bsTextRect, &formatNear, &whiteText);
+                } else if (isHoliday) { // Saturday or Public Holiday
+                    graphics.DrawString(bsDayStr.c_str(), -1, &fontBSDay, bsTextRect, &formatNear, &crimsonText);
+                } else {
+                    graphics.DrawString(bsDayStr.c_str(), -1, &fontBSDay, bsTextRect, &formatNear, &textPrimary);
+                }
+
+                // Festive indicator dot for dates with cultural holidays/events
+                if (hasDayEvent && !isToday) {
+                    SolidBrush dotBrush(holiday->isPublicHoliday ? Color(255, 220, 20, 60) : Color(255, 0, 120, 215));
+                    graphics.FillEllipse(&dotBrush, cellRect.X + 6.0f * s, cellRect.Y + cellRect.Height - 8.0f * s, 5.0f * s, 5.0f * s);
+                }
+
+                // AD Day Text in bottom-right corner
+                std::wstring adDayStr = std::to_wstring(cellAdD);
+
+                RectF adTextRect(cellRect.X + 18.0f * s, cellRect.Y + 23.0f * s, 30.0f * s, 18.0f * s);
+                if (isToday) {
+                    SolidBrush whiteSubText(Color(230, 255, 255, 255));
+                    graphics.DrawString(adDayStr.c_str(), -1, &fontADDay, adTextRect, &formatFar, &whiteSubText);
+                } else {
+                    SolidBrush adSubText(g_isLightTheme ? Color(160, 100, 100, 100) : Color(170, 165, 165, 165));
+                    graphics.DrawString(adDayStr.c_str(), -1, &fontADDay, adTextRect, &formatFar, &adSubText);
+                }
+            }
+        }
+    }
+
+    // 6. Wide Event Flyout (Dates) or Top-Right Dialog (Offline notice with NO arrows)
+    if (hasEvent) {
+        StringFormat formatDesc;
+        formatDesc.SetAlignment(StringAlignmentNear);
+        formatDesc.SetLineAlignment(StringAlignmentNear);
+        formatDesc.SetTrimming(StringTrimmingNone);
+
+        std::wstring cardCategory = L"";
+        std::wstring cardTitleNP = L"";
+        std::wstring cardTitleEN = L"";
+        std::wstring cardDescription = L"";
+        bool isPubHol = false;
+        bool isOffline = false;
+
+        if (selHoliday != NULL) {
+            cardCategory = selHoliday->category;
+            cardTitleNP = selHoliday->titleNP;
+            cardTitleEN = selHoliday->titleEN;
+            cardDescription = selHoliday->description;
+            isPubHol = selHoliday->isPublicHoliday;
+        } else if (isOfflineMode) {
+            cardCategory = L"OFFLINE";
+            cardTitleNP = L"\u0907\u0928\u094D\u091F\u0930\u0928\u0947\u091F \u091C\u0921\u093E\u0928 \u0906\u0935\u0936\u094D\u092F\u0915";
+            cardTitleEN = L"Internet Connection Required";
+            cardDescription = L"Please connect to the internet to load all events and holidays for BS " + std::to_wstring(g_calYear) + L". The calendar will automatically retrieve and store the schedule for the entire year.";
+            isOffline = true;
+        } else if (isDownloading) {
+            cardCategory = L"SYNCING";
+            cardTitleNP = L"\u091A\u093E\u0921\u092A\u0930\u094D\u0935 \u0930 \u092C\u093F\u0926\u093E \u0932\u094B\u0921 \u0939\u0941\u0901\u0926\u0948\u091B...";
+            cardTitleEN = L"Downloading Holidays...";
+            cardDescription = L"Connecting to server and retrieving Bikram Sambat " + std::to_wstring(g_calYear) + L" holiday database.";
+        }
+
+        RectF descMeasureBox(0, 0, (flyoutW - 48.0f) * s, 1000.0f * s);
+        RectF measuredDesc;
+        graphics.MeasureString(cardDescription.c_str(), -1, &fontDetailL3, descMeasureBox, &formatDesc, &measuredDesc);
+        float neededDescH = measuredDesc.Height / s;
+
+        // Snug card height with clean bottom padding
+        float extraBtnH = isOffline ? 42.0f : 0.0f;
+        float flyoutH = 138.0f + neededDescH + 18.0f + extraBtnH;
+
+        REAL fx = (baseW + (isOffline || isDownloading ? 12.0f : arrowW)) * s;
+        REAL fw = flyoutW * s;
+        REAL fh = flyoutH * s;
+        REAL fy = 14.0f * s;
+
+        GraphicsPath bubblePath;
+        if (isOffline || isDownloading) {
+            // Standalone top-right dialog box with NO arrows following specific dates
+            fy = 14.0f * s;
+            AddRoundedRectangle(bubblePath, fx, fy, fw, fh, 12.0f * s);
+        } else {
+            // Contextual date flyout with arrow pointing to selected date
+            if (selectedCellCenterY <= 0) {
+                int startDow = GetBSMonthStartDayOfWeek(g_calYear, g_calMonth);
+                int cellIdx = startDow + g_calSelectedDay - 1;
+                int r = cellIdx / 7;
+                if (r < 0) r = 0; if (r > 5) r = 5;
+                selectedCellCenterY = (138.0f + r * 48.0f + 22.0f) * s;
+            }
+            fy = selectedCellCenterY - fh / 2.0f;
+            if (fy < 14.0f * s) fy = 14.0f * s;
+            if (fy + fh > (baseH - 14.0f) * s) fy = (baseH - 14.0f) * s - fh;
+
+            REAL arrowHalfH = 12.0f * s;
+            REAL rCorner = 12.0f * s;
+            REAL dCorner = rCorner * 2.0f;
+
+            REAL tipX = baseW * s + 2.0f * s;
+            REAL tipY = selectedCellCenterY;
+            if (tipY < fy + rCorner + arrowHalfH) tipY = fy + rCorner + arrowHalfH;
+            if (tipY > fy + fh - rCorner - arrowHalfH) tipY = fy + fh - rCorner - arrowHalfH;
+
+            // Speech bubble path with triangle pointer
+            bubblePath.AddArc(fx, fy, dCorner, dCorner, 180, 90);
+            bubblePath.AddArc(fx + fw - dCorner, fy, dCorner, dCorner, 270, 90);
+            bubblePath.AddArc(fx + fw - dCorner, fy + fh - dCorner, dCorner, dCorner, 0, 90);
+            bubblePath.AddArc(fx, fy + fh - dCorner, dCorner, dCorner, 90, 90);
+
+            bubblePath.AddLine(fx, fy + fh - rCorner, fx, tipY + arrowHalfH);
+            bubblePath.AddLine(fx, tipY + arrowHalfH, tipX, tipY);
+            bubblePath.AddLine(tipX, tipY, fx, tipY - arrowHalfH);
+            bubblePath.AddLine(fx, tipY - arrowHalfH, fx, fy + rCorner);
+            bubblePath.CloseFigure();
+        }
+
+        SolidBrush flyoutBg(g_isLightTheme ? Color(255, 255, 255, 255) : Color(255, 30, 30, 36));
+        graphics.FillPath(&flyoutBg, &bubblePath);
+        Pen flyoutPen(g_isLightTheme ? Color(60, 0, 0, 0) : Color(70, 255, 255, 255), 1.0f * s);
+        graphics.DrawPath(&flyoutPen, &bubblePath);
+
+        // Left accent strip
+        GraphicsPath stripPath;
+        AddRoundedRectangle(stripPath, fx + 12.0f * s, fy + 16.0f * s, 4.0f * s, fh - 32.0f * s, 2.0f * s);
+        SolidBrush stripBrush(isPubHol ? Color(255, 220, 20, 60) : (isOffline ? Color(255, 220, 140, 20) : Color(255, 0, 120, 215)));
+        graphics.FillPath(&stripBrush, &stripPath);
+
+        int selAdY = 0, selAdM = 0, selAdD = 0, selDow = 0;
+        BSToAD(g_calYear, g_calMonth, g_calSelectedDay, selAdY, selAdM, selAdD, selDow);
+
+        StringFormat formatNearNoWrap;
+        formatNearNoWrap.SetAlignment(StringAlignmentNear);
+        formatNearNoWrap.SetLineAlignment(StringAlignmentCenter);
+        formatNearNoWrap.SetFormatFlags(StringFormatFlagsNoWrap);
+
+        // Top Section Line 1: Devanagari BS Date or Status Header
+        std::wstring npDateStr;
+        if (isOffline || isDownloading) {
+            npDateStr = ToDevanagariNum(g_calYear) + L" BS \u2022 \u091A\u093E\u0921\u092A\u0930\u094D\u0935 \u0930 \u092C\u093F\u0926\u093E";
+        } else {
+            npDateStr = ToDevanagariNum(g_calYear) + L" " + kNepaliMonthNamesNP[mIdx] + L" " +
+                        ToDevanagariNum(g_calSelectedDay) + L" \u0917\u0924\u0947, " + kNepaliDayNamesNP[selDow];
+        }
+
+        RectF npDateRect(fx + 26.0f * s, fy + 16.0f * s, fw - 165.0f * s, 22.0f * s);
+        graphics.DrawString(npDateStr.c_str(), -1, &fontDetailL2, npDateRect, &formatNearNoWrap, &textPrimary);
+
+        // Top Section Line 2: English AD Date or Sub-Header
+        std::wstring enDateStr;
+        if (isOffline || isDownloading) {
+            enDateStr = L"Events & Public Holidays";
+        } else {
+            enDateStr = std::to_wstring(selAdD) + L" " + kEnglishMonthNames[selAdM - 1] + L" " +
+                        std::to_wstring(selAdY) + L", " + kNepaliDayNamesEN[selDow];
+        }
+
+        RectF enDateRect(fx + 26.0f * s, fy + 40.0f * s, fw - 165.0f * s, 20.0f * s);
+        graphics.DrawString(enDateStr.c_str(), -1, &fontNavSub, enDateRect, &formatNearNoWrap, &textSubtle);
+
+        // Top Section: Category Badge on right
+        RectF badgeRect(fx + fw - 132.0f * s, fy + 22.0f * s, 118.0f * s, 28.0f * s);
+        GraphicsPath badgePath;
+        AddRoundedRectangle(badgePath, badgeRect.X, badgeRect.Y, badgeRect.Width, badgeRect.Height, 5.0f * s);
+        
+        if (isPubHol) {
+            SolidBrush badgeBg(Color(50, 220, 20, 60));
+            graphics.FillPath(&badgeBg, &badgePath);
+            Pen badgePen(Color(180, 220, 20, 60), 1.0f * s);
+            graphics.DrawPath(&badgePen, &badgePath);
+            graphics.DrawString(L"PUBLIC HOLIDAY", -1, &fontBadge, badgeRect, &formatCenter, &crimsonText);
+        } else if (isOffline) {
+            SolidBrush badgeBg(Color(50, 220, 140, 20));
+            graphics.FillPath(&badgeBg, &badgePath);
+            Pen badgePen(Color(180, 220, 140, 20), 1.0f * s);
+            graphics.DrawPath(&badgePen, &badgePath);
+            SolidBrush amberText(Color(255, 230, 140, 30));
+            graphics.DrawString(L"\u26A0 OFFLINE", -1, &fontBadge, badgeRect, &formatCenter, &amberText);
+        } else if (isDownloading) {
+            SolidBrush badgeBg(Color(50, 0, 120, 215));
+            graphics.FillPath(&badgeBg, &badgePath);
+            Pen badgePen(Color(180, 0, 120, 215), 1.0f * s);
+            graphics.DrawPath(&badgePen, &badgePath);
+            SolidBrush blueText(Color(255, 60, 140, 255));
+            graphics.DrawString(L"\u21BB SYNCING", -1, &fontBadge, badgeRect, &formatCenter, &blueText);
+        } else {
+            SolidBrush badgeBg(g_isLightTheme ? Color(40, 0, 56, 147) : Color(60, 0, 56, 147));
+            graphics.FillPath(&badgeBg, &badgePath);
+            Pen badgePen(Color(180, 0, 80, 200), 1.0f * s);
+            graphics.DrawPath(&badgePen, &badgePath);
+            SolidBrush blueText(Color(255, 60, 140, 255));
+            graphics.DrawString(L"FESTIVAL / \u092A\u0930\u094D\u0935", -1, &fontBadge, badgeRect, &formatCenter, &blueText);
+        }
+
+        // Divider line
+        Pen dividerPen(g_isLightTheme ? Color(25, 0, 0, 0) : Color(40, 255, 255, 255), 1.0f * s);
+        graphics.DrawLine(&dividerPen, fx + 22.0f * s, fy + 68.0f * s, fx + fw - 14.0f * s, fy + 68.0f * s);
+
+        // Event Title: Nepali & English
+        RectF holTitleRect(fx + 26.0f * s, fy + 78.0f * s, fw - 42.0f * s, 28.0f * s);
+        SolidBrush holTitleBrush(isPubHol ? Color(255, 240, 45, 75) : (g_isLightTheme ? Color(255, 0, 56, 147) : Color(255, 90, 170, 255)));
+        graphics.DrawString(cardTitleNP.c_str(), -1, &fontDetailL1, holTitleRect, &formatNear, &holTitleBrush);
+
+        RectF holSubTitleRect(fx + 26.0f * s, fy + 108.0f * s, fw - 42.0f * s, 24.0f * s);
+        graphics.DrawString(cardTitleEN.c_str(), -1, &fontDetailL2, holSubTitleRect, &formatNear, &textPrimary);
+
+        // Event Description
+        RectF holDescRect(fx + 26.0f * s, fy + 138.0f * s, (flyoutW - 48.0f) * s, (neededDescH + 4.0f) * s);
+        SolidBrush descTextBrush(g_isLightTheme ? Color(255, 45, 45, 50) : Color(255, 235, 235, 240));
+        graphics.DrawString(cardDescription.c_str(), -1, &fontDetailL3, holDescRect, &formatDesc, &descTextBrush);
+
+        // Retry button if offline
+        if (isOffline) {
+            RectF retryBtnRect(fx + 26.0f * s, fy + 138.0f * s + neededDescH + 10.0f * s, 140.0f * s, 30.0f * s);
+            DrawIconButton(graphics, retryBtnRect, L"\u21BB Retry / \u092A\u0941\u0928\u0903 \u092A\u094D\u0930\u092F\u093E\u0938", g_hoveredBtn == BTN_RETRY_FETCH, g_isLightTheme, fontButton);
+        }
+    }
+
+    // Apply per-pixel alpha channel
+    POINT ptDst = { g_calX, g_calY };
+    SIZE sizeDst = { rawW, rawH };
+    POINT ptSrc = { 0, 0 };
+    BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+
+    UpdateLayeredWindow(hWnd, hdcScreen, &ptDst, &sizeDst, hdcMem, &ptSrc, 0, &blend, ULW_ALPHA);
+
+    SelectObject(hdcMem, hOldBitmap);
+    DeleteObject(hBitmap);
+    DeleteDC(hdcMem);
+    ReleaseDC(NULL, hdcScreen);
+}
+
+LRESULT CALLBACK CalendarWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_ACTIVATE:
+        if (LOWORD(wParam) == WA_INACTIVE) {
+            HideCalendar();
+        }
+        break;
+
+    case WM_KILLFOCUS:
+        HideCalendar();
+        break;
+
+    case WM_MOUSEMOVE: {
+        int x = LOWORD(lParam);
+        int y = HIWORD(lParam);
+        float s = g_dpiScale;
+        float bx = x / s;
+        float by = y / s;
+
+        int newBtn = BTN_NONE;
+        int newCell = -1;
+
+        if (bx >= 18.0f && bx <= 54.0f && by >= 60.0f && by <= 94.0f) {
+            newBtn = BTN_PREV_MONTH;
+        } else if (bx >= 366.0f && bx <= 402.0f && by >= 60.0f && by <= 94.0f) {
+            newBtn = BTN_NEXT_MONTH;
+        } else if (bx >= 300.0f && bx <= 368.0f && by >= 14.0f && by <= 44.0f) {
+            newBtn = BTN_TODAY;
+        } else if (bx >= 374.0f && bx <= 404.0f && by >= 14.0f && by <= 44.0f) {
+            newBtn = BTN_CLOSE;
+        } else if (g_holidayFetchState == FETCH_ERROR_OFFLINE && g_currentYearHolidays.empty() &&
+                   bx >= (420.0f + 12.0f + 26.0f) && bx <= (420.0f + 12.0f + 26.0f + 140.0f) &&
+                   by >= 190.0f && by <= 270.0f) {
+            newBtn = BTN_RETRY_FETCH;
+        } else if (bx >= 18.0f && bx < 403.0f && by >= 138.0f && by < 426.0f) {
+            int c = (int)((bx - 18.0f) / 55.0f);
+            int r = (int)((by - 138.0f) / 48.0f);
+            if (c >= 0 && c < 7 && r >= 0 && r < 6) {
+                int cellIdx = r * 7 + c;
+                int startDow = GetBSMonthStartDayOfWeek(g_calYear, g_calMonth);
+                int totalD = GetBSDaysInMonth(g_calYear, g_calMonth);
+                int dayNum = cellIdx - startDow + 1;
+                if (dayNum >= 1 && dayNum <= totalD) {
+                    newCell = cellIdx;
+                }
+            }
+        }
+
+        if (newBtn != g_hoveredBtn || newCell != g_hoveredCell) {
+            g_hoveredBtn = newBtn;
+            g_hoveredCell = newCell;
+            RenderCalendar(hWnd);
+        }
+
+        TRACKMOUSEEVENT tme = { sizeof(tme) };
+        tme.dwFlags = TME_LEAVE;
+        tme.hwndTrack = hWnd;
+        TrackMouseEvent(&tme);
+        break;
+    }
+
+    case WM_MOUSELEAVE:
+        if (g_hoveredBtn != BTN_NONE || g_hoveredCell != -1) {
+            g_hoveredBtn = BTN_NONE;
+            g_hoveredCell = -1;
+            RenderCalendar(hWnd);
+        }
+        break;
+
+    case WM_LBUTTONDOWN: {
+        int x = LOWORD(lParam);
+        int y = HIWORD(lParam);
+        float s = g_dpiScale;
+        float bx = x / s;
+        float by = y / s;
+
+        if (bx >= 18.0f && bx <= 54.0f && by >= 60.0f && by <= 94.0f) {
+            // Prev Month (within current BS year)
+            if (g_calMonth > 1) {
+                g_calMonth--;
+                int maxD = GetBSDaysInMonth(g_calYear, g_calMonth);
+                if (g_calSelectedDay > maxD) g_calSelectedDay = maxD;
+                RenderCalendar(hWnd);
+            }
+        } else if (bx >= 366.0f && bx <= 402.0f && by >= 60.0f && by <= 94.0f) {
+            // Next Month (within current BS year)
+            if (g_calMonth < 12) {
+                g_calMonth++;
+                int maxD = GetBSDaysInMonth(g_calYear, g_calMonth);
+                if (g_calSelectedDay > maxD) g_calSelectedDay = maxD;
+                RenderCalendar(hWnd);
+            }
+        } else if (bx >= 300.0f && bx <= 368.0f && by >= 14.0f && by <= 44.0f) {
+            // Today
+            int cy, cm, cd, cdow;
+            GetCurrentBSDate(cy, cm, cd, cdow);
+            g_calYear = cy;
+            g_calMonth = cm;
+            g_calSelectedDay = cd;
+            RenderCalendar(hWnd);
+        } else if (bx >= 374.0f && bx <= 404.0f && by >= 14.0f && by <= 44.0f) {
+            // Close
+            HideCalendar();
+        } else if (g_hoveredBtn == BTN_RETRY_FETCH ||
+                  (g_holidayFetchState == FETCH_ERROR_OFFLINE && g_currentYearHolidays.empty() &&
+                   bx >= (420.0f + 12.0f + 26.0f) && bx <= (420.0f + 12.0f + 26.0f + 140.0f) &&
+                   by >= 190.0f && by <= 270.0f)) {
+            // Retry fetch
+            EnsureHolidaysLoadedForCurrentYear(g_calYear, true);
+            RenderCalendar(hWnd);
+        } else if (bx >= 18.0f && bx < 403.0f && by >= 138.0f && by < 426.0f) {
+            int c = (int)((bx - 18.0f) / 55.0f);
+            int r = (int)((by - 138.0f) / 48.0f);
+            if (c >= 0 && c < 7 && r >= 0 && r < 6) {
+                int cellIdx = r * 7 + c;
+                int startDow = GetBSMonthStartDayOfWeek(g_calYear, g_calMonth);
+                int totalD = GetBSDaysInMonth(g_calYear, g_calMonth);
+                int dayNum = cellIdx - startDow + 1;
+                if (dayNum >= 1 && dayNum <= totalD) {
+                    g_calSelectedDay = dayNum;
+                    RenderCalendar(hWnd);
+                }
+            }
+        }
+        break;
+    }
+
+    case WM_MOUSEWHEEL: {
+        short delta = GET_WHEEL_DELTA_WPARAM(wParam);
+        if (delta > 0) {
+            if (g_calMonth > 1) {
+                g_calMonth--;
+            }
+        } else if (delta < 0) {
+            if (g_calMonth < 12) {
+                g_calMonth++;
+            }
+        }
+        int maxD = GetBSDaysInMonth(g_calYear, g_calMonth);
+        if (g_calSelectedDay > maxD) g_calSelectedDay = maxD;
+        RenderCalendar(hWnd);
+        break;
+    }
+
+    case WM_KEYDOWN:
+        if (wParam == VK_ESCAPE) {
+            HideCalendar();
+        } else if (wParam == VK_LEFT) {
+            if (g_calSelectedDay > 1) {
+                g_calSelectedDay--;
+            } else if (g_calMonth > 1) {
+                g_calMonth--;
+                g_calSelectedDay = GetBSDaysInMonth(g_calYear, g_calMonth);
+            }
+            RenderCalendar(hWnd);
+        } else if (wParam == VK_RIGHT) {
+            int maxD = GetBSDaysInMonth(g_calYear, g_calMonth);
+            if (g_calSelectedDay < maxD) {
+                g_calSelectedDay++;
+            } else if (g_calMonth < 12) {
+                g_calMonth++;
+                g_calSelectedDay = 1;
+            }
+            RenderCalendar(hWnd);
+        } else if (wParam == VK_UP) {
+            if (g_calSelectedDay > 7) {
+                g_calSelectedDay -= 7;
+                RenderCalendar(hWnd);
+            }
+        } else if (wParam == VK_DOWN) {
+            int maxD = GetBSDaysInMonth(g_calYear, g_calMonth);
+            if (g_calSelectedDay + 7 <= maxD) {
+                g_calSelectedDay += 7;
+                RenderCalendar(hWnd);
+            }
+        } else if (wParam == VK_HOME) {
+            int cy, cm, cd, cdow;
+            GetCurrentBSDate(cy, cm, cd, cdow);
+            g_calYear = cy;
+            g_calMonth = cm;
+            g_calSelectedDay = cd;
+            RenderCalendar(hWnd);
+        }
+        break;
+
+    case WM_DESTROY:
+        g_hCalWnd = NULL;
+        break;
+
+    default:
+        return DefWindowProc(hWnd, msg, wParam, lParam);
+    }
+    return 0;
+}
+
+void HideCalendar() {
+    if (!g_isCalendarOpen) return;
+    g_isCalendarOpen = false;
+    g_lastCalCloseTime = GetTickCount();
+    if (g_hCalWnd) {
+        ShowWindow(g_hCalWnd, SW_HIDE);
+    }
+}
+
+void ShowCalendar(HWND hWidgetWnd) {
+    if (!g_hCalWnd || g_setupMode) return;
+    
+    // Always initialize with live BS date
+    int cy, cm, cd, cdow;
+    GetCurrentBSDate(cy, cm, cd, cdow);
+    g_calYear = cy;
+    g_calMonth = cm;
+    g_calSelectedDay = cd;
+    g_hoveredBtn = BTN_NONE;
+    g_hoveredCell = -1;
+
+    EnsureHolidaysLoadedForCurrentYear(cy);
+
+    int calW = (int)(420 * g_dpiScale);
+    int calH = (int)(440 * g_dpiScale);
+
+    RECT rcWidget;
+    GetWindowRect(hWidgetWnd, &rcWidget);
+
+    HMONITOR hMon = MonitorFromWindow(hWidgetWnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof(mi) };
+    GetMonitorInfo(hMon, &mi);
+
+    int widgetCenterX = rcWidget.left + (rcWidget.right - rcWidget.left) / 2;
+    int x = widgetCenterX - calW / 2;
+    int y = rcWidget.top - calH - (int)(10 * g_dpiScale);
+
+    // Position below widget if above screen top or work area
+    if (y < mi.rcWork.top) {
+        y = rcWidget.bottom + (int)(10 * g_dpiScale);
+    }
+    // Clamp inside screen bounds
+    if (y + calH > mi.rcWork.bottom) {
+        y = mi.rcWork.bottom - calH - (int)(8 * g_dpiScale);
+    }
+    // Make sure entire width including the potential right flyout fits within monitor bounds
+    int maxW = (int)((420 + 12 + 380 + 12) * g_dpiScale);
+    if (x + maxW > mi.rcWork.right) {
+        x = mi.rcWork.right - maxW - (int)(10 * g_dpiScale);
+    }
+    if (x < mi.rcWork.left) {
+        x = mi.rcWork.left + (int)(8 * g_dpiScale);
+    }
+
+    g_calX = x;
+    g_calY = y;
+
+    SetWindowPos(g_hCalWnd, HWND_TOPMOST, x, y, maxW, calH, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    RenderCalendar(g_hCalWnd);
+    ShowWindow(g_hCalWnd, SW_SHOW);
+    SetForegroundWindow(g_hCalWnd);
+    g_isCalendarOpen = true;
+}
+
+void ToggleCalendar(HWND hWidgetWnd) {
+    if (g_isCalendarOpen) {
+        HideCalendar();
+    } else {
+        ShowCalendar(hWidgetWnd);
+    }
+}
+
 // ── Custom Drawing Engine (Per-Pixel Alpha) ──────────────────────────────────
 void RenderWidget(HWND hWnd) {
+    // Automatically ensure holiday data is loaded for the current BS year
+    static int s_lastCheckedBSYear = 0;
+    int curBSY = 0, curBSM = 0, curBSD = 0, curBSDOW = 0;
+    GetCurrentBSDate(curBSY, curBSM, curBSD, curBSDOW);
+    if (curBSY != s_lastCheckedBSYear) {
+        s_lastCheckedBSYear = curBSY;
+        EnsureHolidaysLoadedForCurrentYear(curBSY);
+    }
+
     // Use DPI-scaled dimensions for the render surface to get crisp pixels
     int baseWidth = g_showDay ? 190 : 155;
     int rawWidth = (int)(baseWidth * g_dpiScale);
@@ -380,8 +1754,7 @@ void RenderWidget(HWND hWnd) {
     REAL h = 24.0f * s;
     REAL flagWidth = 0.822f * h;
     
-    // We will compute cx dynamically later after measuring the day string width, 
-    // but for now we set up the Y coordinates.
+    // Y coordinates
     REAL cy = rawHeight / 2.0f;
     REAL top = cy - h / 2.0f;
 
@@ -446,52 +1819,8 @@ void RenderWidget(HWND hWnd) {
     // Use dark text on light theme, white text on dark theme
     SolidBrush textBrush(g_isLightTheme ? Color(255, 20, 20, 20) : Color(255, 255, 255, 255));
 
-
-    // 3. Render Flag (now that cx is computed)
-    SolidBrush blueBrush(Color(255, 0, 56, 147));
-    SolidBrush crimsonBrush(Color(255, 220, 20, 60));
-    SolidBrush whiteBrush(Color(255, 255, 255, 255));
-
-    PointF polyOuter[5] = {
-        PointF(cx, top),
-        PointF(cx + 0.765f * h, top + 0.543f * h),
-        PointF(cx + 0.266f * h, top + 0.543f * h),
-        PointF(cx + 0.822f * h, top + h),
-        PointF(cx, top + h)
-    };
-    graphics.FillPolygon(&blueBrush, polyOuter, 5);
-
-    PointF polyInner[5] = {
-        PointF(cx + 0.042f * h, top + 0.073f * h),
-        PointF(cx + 0.674f * h, top + 0.501f * h),
-        PointF(cx + 0.232f * h, top + 0.501f * h),
-        PointF(cx + 0.715f * h, top + 0.958f * h),
-        PointF(cx + 0.042f * h, top + 0.958f * h)
-    };
-    graphics.FillPolygon(&crimsonBrush, polyInner, 5);
-    
-    // Moon
-    REAL moonOuterDiam = 0.20f * h;
-    REAL moonOuterX = cx + 0.22f * h - (moonOuterDiam / 2.0f);
-    REAL moonOuterY = top + 0.32f * h - (moonOuterDiam / 2.0f);
-    graphics.FillEllipse(&whiteBrush, moonOuterX, moonOuterY, moonOuterDiam, moonOuterDiam);
-    
-    REAL moonInnerDiam = 0.18f * h;
-    REAL moonInnerX = moonOuterX + 0.01f * h;
-    REAL moonInnerY = moonOuterY - 0.04f * h;
-    graphics.FillEllipse(&crimsonBrush, moonInnerX, moonInnerY, moonInnerDiam, moonInnerDiam);
-    
-    REAL moonStarDiam = 0.09f * h;
-    REAL moonStarX = cx + 0.22f * h - (moonStarDiam / 2.0f);
-    REAL moonStarY = top + 0.33f * h - (moonStarDiam / 2.0f);
-    graphics.FillEllipse(&whiteBrush, moonStarX, moonStarY, moonStarDiam, moonStarDiam);
-
-    // Sun
-    REAL sunDiam = 0.18f * h;
-    REAL sunX = cx + 0.26f * h - (sunDiam / 2.0f);
-    REAL sunY = top + 0.73f * h - (sunDiam / 2.0f);
-    graphics.FillEllipse(&whiteBrush, sunX, sunY, sunDiam, sunDiam);
-
+    // 3. Render Flag
+    DrawNepaliFlag(graphics, cx, top, h);
 
     // 4. Render Date Text
     RectF dateRect(dateX, 0.0f, (REAL)rawWidth - dateX, (REAL)rawHeight);
@@ -532,6 +1861,8 @@ void RemoveTrayIcon() {
 
 void ShowContextMenu(HWND hWnd, POINT pt) {
     HMENU hMenu = CreatePopupMenu();
+    AppendMenu(hMenu, MF_STRING, 7, L"Open Full Calendar");
+    AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
     AppendMenu(hMenu, MF_STRING, 1, g_setupMode ? L"Lock Position & Make Transparent" : L"Adjust Position");
 
     bool startupOn = IsStartupEnabled();
@@ -553,6 +1884,9 @@ void ShowContextMenu(HWND hWnd, POINT pt) {
 
     if (cmd == 1) {
         g_setupMode = !g_setupMode;
+        if (g_setupMode && g_isCalendarOpen) {
+            HideCalendar();
+        }
         SaveConfig();
         RenderWidget(hWnd);
     } else if (cmd == 2) {
@@ -568,6 +1902,8 @@ void ShowContextMenu(HWND hWnd, POINT pt) {
         RenderWidget(hWnd);
     } else if (cmd == 6) {
         ShellExecuteW(NULL, L"open", L"https://aayushlbef.github.io/Nepali-Date-Widget/#sponsor", NULL, NULL, SW_SHOWNORMAL);
+    } else if (cmd == 7) {
+        ToggleCalendar(hWnd);
     }
 }
 
@@ -583,11 +1919,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_TIMER:
         if (wParam == 1) {
             RenderWidget(hWnd);
+
+            // Auto-recovery: periodically retry fetching holidays in background when offline
+            if (g_holidayFetchState == FETCH_ERROR_OFFLINE && !g_isHolidayFetchInProgress) {
+                DWORD now = GetTickCount();
+                if (now - g_lastHolidayFetchAttemptTime >= 30000) {
+                    int cy, cm, cd, cdow;
+                    GetCurrentBSDate(cy, cm, cd, cdow);
+                    EnsureHolidaysLoadedForCurrentYear(cy, true);
+                }
+            }
         } else if (wParam == 2) {
             // ── Fullscreen detection: hide during movies/games ────────
             bool fullscreen = IsFullscreenAppRunning();
             if (fullscreen && !g_hiddenForFullscreen) {
                 g_hiddenForFullscreen = true;
+                if (g_isCalendarOpen) HideCalendar();
                 ShowWindow(hWnd, SW_HIDE);
             } else if (!fullscreen && g_hiddenForFullscreen) {
                 g_hiddenForFullscreen = false;
@@ -598,22 +1945,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (!g_hiddenForFullscreen && !g_isMenuOpen) {
                 SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
                              SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
-                
-                // Fast Startup fix: dynamically repair taskbar parent relationship
-                HWND hTaskbar = FindWindow(L"Shell_TrayWnd", NULL);
-                if (hTaskbar && hTaskbar != (HWND)GetWindowLongPtr(hWnd, GWLP_HWNDPARENT)) {
-                    SetWindowLongPtr(hWnd, GWLP_HWNDPARENT, (LONG_PTR)hTaskbar);
-                }
             }
         }
         break;
 
     // ── THE KEY FIX: Prevent taskbar thumbnail previews from hiding us ────
-    // When you hover over a taskbar app icon, Windows internally calls
-    // ShowOwnedPopups(hTaskbar, FALSE), which sends WM_SHOWWINDOW with
-    // wParam=FALSE and lParam=SW_PARENTCLOSING to all windows owned by
-    // the taskbar. By intercepting this and returning 0 (not calling
-    // DefWindowProc), we refuse to be hidden.
     case WM_SHOWWINDOW:
         if (wParam == FALSE && lParam == SW_PARENTCLOSING) {
             return 0;  // Block the hide — stay visible
@@ -621,20 +1957,27 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         return DefWindowProc(hWnd, msg, wParam, lParam);
 
     case WM_LBUTTONDOWN:
-        if (!g_setupMode) break;  // Locked — don't allow dragging
-        g_isDragging = true;
-        SetCapture(hWnd);
-        GetCursorPos(&g_dragStart);
-        g_dragStart.x -= g_xPos;
-        g_dragStart.y -= g_yPos;
+        if (g_setupMode) {
+            g_isDragging = true;
+            g_hasDragged = false;
+            SetCapture(hWnd);
+            GetCursorPos(&g_dragStart);
+            g_dragStart.x -= g_xPos;
+            g_dragStart.y -= g_yPos;
+        }
         break;
 
     case WM_MOUSEMOVE:
         if (g_isDragging) {
             POINT pt;
             GetCursorPos(&pt);
-            g_xPos = pt.x - g_dragStart.x;
-            g_yPos = pt.y - g_dragStart.y;
+            int newX = pt.x - g_dragStart.x;
+            int newY = pt.y - g_dragStart.y;
+            if (abs(newX - g_xPos) > 2 || abs(newY - g_yPos) > 2) {
+                g_hasDragged = true;
+            }
+            g_xPos = newX;
+            g_yPos = newY;
             RenderWidget(hWnd);
         }
         break;
@@ -644,6 +1987,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             g_isDragging = false;
             ReleaseCapture();
             SaveConfig();
+        } else {
+            // Only toggle calendar when locked in position (!g_setupMode)
+            if (!g_setupMode) {
+                if (GetTickCount() - g_lastCalCloseTime > 250) {
+                    ToggleCalendar(hWnd);
+                }
+            }
         }
         break;
 
@@ -689,11 +2039,27 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     L"Nepali Date Widget \u2014 Error", MB_OK | MB_ICONERROR);
         break;
 
+    case WM_HOLIDAYS_LOADED:
+        RenderWidget(hWnd);
+        if (g_isCalendarOpen && g_hCalWnd) {
+            RenderCalendar(g_hCalWnd);
+        }
+        break;
+
+    case WM_HOLIDAYS_FAILED:
+        if (g_isCalendarOpen && g_hCalWnd) {
+            RenderCalendar(g_hCalWnd);
+        }
+        break;
+
     // ── Theme change detection ─────────────────────────────────────────────
     case WM_SETTINGCHANGE:
         if (lParam && wcscmp((LPCWSTR)lParam, L"ImmersiveColorSet") == 0) {
             g_isLightTheme = DetectWindowsTheme();
             RenderWidget(hWnd);
+            if (g_isCalendarOpen && g_hCalWnd) {
+                RenderCalendar(g_hCalWnd);
+            }
         }
         break;
 
@@ -713,8 +2079,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     // ── DPI Awareness: Render at native resolution, no bitmap scaling ────
-    // This is the #1 fix for blurry text and flag. Without this, Windows
-    // renders the widget at 96 DPI then stretches the bitmap up, blurring it.
     typedef BOOL (WINAPI *SetProcessDpiAwarenessContextFunc)(HANDLE);
     HMODULE hUser32 = GetModuleHandleW(L"user32.dll");
     if (hUser32) {
@@ -739,6 +2103,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     GdiplusStartupInput gdiplusStartupInput;
     GdiplusStartup(&g_gdiplusToken, &gdiplusStartupInput, NULL);
 
+    // Register Widget Class
     WNDCLASSEX wc = { 0 };
     wc.cbSize = sizeof(WNDCLASSEX);
     wc.lpfnWndProc = WndProc;
@@ -746,7 +2111,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wc.lpszClassName = L"NepaliTaskbarWidgetClass";
     wc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(1));
     wc.hIconSm = LoadIcon(hInstance, MAKEINTRESOURCE(1));
-    ATOM atom = RegisterClassEx(&wc);
+    RegisterClassEx(&wc);
+
+    // Register Calendar Popup Class
+    WNDCLASSEX wcCal = { 0 };
+    wcCal.cbSize = sizeof(WNDCLASSEX);
+    wcCal.lpfnWndProc = CalendarWndProc;
+    wcCal.hInstance = hInstance;
+    wcCal.lpszClassName = L"NepaliCalendarPopupClass";
+    wcCal.hCursor = LoadCursor(NULL, IDC_ARROW);
+    RegisterClassEx(&wcCal);
 
     HWND hTaskbar = FindWindow(L"Shell_TrayWnd", NULL);
     
@@ -767,7 +2141,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     int winW = (int)((g_showDay ? 190 : 155) * g_dpiScale);
     int winH = (int)(48 * g_dpiScale);
 
-    // Create a frameless, tool-window with layered (translucent) attributes as a POPUP
+    // Create main widget window
     g_hWnd = CreateWindowEx(
         WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
         L"NepaliTaskbarWidgetClass",
@@ -777,10 +2151,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         NULL, NULL, hInstance, NULL
     );
 
+    // Create calendar popup window
+    g_hCalWnd = CreateWindowEx(
+        WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+        L"NepaliCalendarPopupClass",
+        L"Nepali Calendar",
+        WS_POPUP,
+        0, 0, (int)(824 * g_dpiScale), (int)(440 * g_dpiScale),
+        NULL, NULL, hInstance, NULL
+    );
+
     // ── Set the Taskbar as the OWNER of this window ─────────────────────
-    // This keeps the widget mathematically ABOVE the taskbar in Z-order.
-    // The WM_SHOWWINDOW handler above prevents the taskbar's thumbnail
-    // preview system from hiding us via ShowOwnedPopups().
     if (hTaskbar) {
         SetWindowLongPtr(g_hWnd, GWLP_HWNDPARENT, (LONG_PTR)hTaskbar);
     }
@@ -796,6 +2177,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     while (GetMessage(&msg, NULL, 0, 0)) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
+    }
+
+    if (g_hCalWnd) {
+        DestroyWindow(g_hCalWnd);
+        g_hCalWnd = NULL;
     }
 
     GdiplusShutdown(g_gdiplusToken);

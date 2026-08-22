@@ -1,0 +1,429 @@
+{
+  "year": 2083,
+  "count": 47,
+  "holidays": [
+    {
+      "month": 1,
+      "day": 1,
+      "isPublicHoliday": true,
+      "titleNP": "नयाँ वर्ष (Nepali New Year)",
+      "titleEN": "Nepali New Year 2083 & Bisket Jatra",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Official national public holiday welcoming Bikram Sambat 2083 New Year."
+    },
+    {
+      "month": 1,
+      "day": 11,
+      "isPublicHoliday": false,
+      "titleNP": "लोकतन्त्र दिवस",
+      "titleEN": "Loktantra Diwas (Democracy Day)",
+      "category": "NATIONAL DAY",
+      "description": "Commemorating the historic restoration of democratic parliament in Nepal."
+    },
+    {
+      "month": 1,
+      "day": 18,
+      "isPublicHoliday": true,
+      "titleNP": "अन्तर्राष्ट्रिय श्रमिक दिवस / बुद्ध जयन्ती",
+      "titleEN": "Labour Day (May 1) & Buddha Jayanti",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Auspicious alignment of International Labour Day and Gautama Buddha Jayanti / Ubhauli Parva."
+    },
+    {
+      "month": 2,
+      "day": 15,
+      "isPublicHoliday": true,
+      "titleNP": "गणतन्त्र दिवस",
+      "titleEN": "Republic Day (Ganatantra Diwas)",
+      "category": "PUBLIC HOLIDAY",
+      "description": "National holiday celebrating Nepal's establishment as a Federal Republic."
+    },
+    {
+      "month": 2,
+      "day": 22,
+      "isPublicHoliday": false,
+      "titleNP": "विश्व वातावरण दिवस",
+      "titleEN": "World Environment Day (June 5)",
+      "category": "GLOBAL DAY",
+      "description": "Global call for nature conservation, green tech, and climate sustainability."
+    },
+    {
+      "month": 3,
+      "day": 15,
+      "isPublicHoliday": false,
+      "titleNP": "राष्ट्रिय धान दिवस",
+      "titleEN": "National Paddy Day (Dahi Chiura)",
+      "category": "FESTIVAL",
+      "description": "Traditional agricultural festival celebrating rice planting with curd and beaten rice."
+    },
+    {
+      "month": 3,
+      "day": 16,
+      "isPublicHoliday": false,
+      "titleNP": "गुरु पूर्णिमा",
+      "titleEN": "Guru Purnima",
+      "category": "FESTIVAL",
+      "description": "Sacred day of gratitude dedicated to honoring teachers, mentors, and educators."
+    },
+    {
+      "month": 4,
+      "day": 1,
+      "isPublicHoliday": false,
+      "titleNP": "साउने सङ्क्रान्ति",
+      "titleEN": "Saune Sankranti",
+      "category": "FESTIVAL",
+      "description": "Beginning of the holy monsoon month of Shrawan and solstice transition."
+    },
+    {
+      "month": 4,
+      "day": 15,
+      "isPublicHoliday": false,
+      "titleNP": "खीर खाने दिन",
+      "titleEN": "Kheer Khane Din",
+      "category": "CULTURAL EVENT",
+      "description": "Mid-monsoon tradition of preparing and sharing sweet rice pudding (Kheer)."
+    },
+    {
+      "month": 5,
+      "day": 12,
+      "isPublicHoliday": true,
+      "titleNP": "जनै पूर्णिमा / रक्षाबन्धन",
+      "titleEN": "Janai Purnima & Rakshya Bandhan",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Sacred thread renewal and tying protective Rakhi bands of brotherhood."
+    },
+    {
+      "month": 5,
+      "day": 13,
+      "isPublicHoliday": false,
+      "titleNP": "गाईजात्रा (Gai Jatra)",
+      "titleEN": "Gai Jatra (Cow Festival)",
+      "category": "FESTIVAL",
+      "description": "Vibrant Newar carnival honoring deceased souls with humor, satire, and joy."
+    },
+    {
+      "month": 5,
+      "day": 19,
+      "isPublicHoliday": true,
+      "titleNP": "श्रीकृष्ण जन्माष्टमी",
+      "titleEN": "Krishna Janmashtami",
+      "category": "PUBLIC HOLIDAY",
+      "description": "National public holiday celebrating the birth of Lord Krishna with pujas."
+    },
+    {
+      "month": 5,
+      "day": 20,
+      "isPublicHoliday": true,
+      "titleNP": "गौरा पर्व",
+      "titleEN": "Gaura Parva",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Major regional festival of western Nepal celebrated with energetic Deuda songs."
+    },
+    {
+      "month": 5,
+      "day": 22,
+      "isPublicHoliday": false,
+      "titleNP": "निजामती सेवा दिवस",
+      "titleEN": "Civil Service Day",
+      "category": "NATIONAL DAY",
+      "description": "Commemorating public administration and dedication of civil servants."
+    },
+    {
+      "month": 5,
+      "day": 29,
+      "isPublicHoliday": true,
+      "titleNP": "हरितालिका तीज",
+      "titleEN": "Haritalika Teej",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Joyous fasting festival of dance, song, and red sarees celebrated by women."
+    },
+    {
+      "month": 5,
+      "day": 31,
+      "isPublicHoliday": false,
+      "titleNP": "ऋषि पञ्चमी",
+      "titleEN": "Rishi Panchami",
+      "category": "FESTIVAL",
+      "description": "Traditional worship of the Sapta Rishis for spiritual cleansing and purity."
+    },
+    {
+      "month": 6,
+      "day": 3,
+      "isPublicHoliday": true,
+      "titleNP": "संविधान दिवस",
+      "titleEN": "Constitution Day (National Day)",
+      "category": "PUBLIC HOLIDAY",
+      "description": "National celebration marking the historic adoption of the Constitution of Nepal."
+    },
+    {
+      "month": 6,
+      "day": 9,
+      "isPublicHoliday": true,
+      "titleNP": "इन्द्रजात्रा (Indra Jatra)",
+      "titleEN": "Indra Jatra & Kumari Yatra",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Grand chariot procession of Living Goddess Kumari and rain deity Indra."
+    },
+    {
+      "month": 6,
+      "day": 25,
+      "isPublicHoliday": true,
+      "titleNP": "घटस्थापना (Ghatasthapana)",
+      "titleEN": "Ghatasthapana (Dashain Begins)",
+      "category": "PUBLIC HOLIDAY",
+      "description": "First day of Dashain with sacred Kalash installation and Jamara sowing."
+    },
+    {
+      "month": 7,
+      "day": 1,
+      "isPublicHoliday": true,
+      "titleNP": "फूलपाती (Fulpati)",
+      "titleEN": "Fulpati (Maha Saptami)",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Sacred arrival of auspicious plant offerings to historic royal palaces."
+    },
+    {
+      "month": 7,
+      "day": 2,
+      "isPublicHoliday": true,
+      "titleNP": "महाअष्टमी (Maha Ashtami)",
+      "titleEN": "Maha Ashtami",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Night of deep spiritual reflection and devotion to Goddess Durga Bhavani."
+    },
+    {
+      "month": 7,
+      "day": 3,
+      "isPublicHoliday": true,
+      "titleNP": "महानवमी (Maha Navami)",
+      "titleEN": "Maha Navami",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Worship of Vishwakarma, craft implements, engines, and vehicles."
+    },
+    {
+      "month": 7,
+      "day": 4,
+      "isPublicHoliday": true,
+      "titleNP": "विजया दशमी (Bada Dashain)",
+      "titleEN": "Vijaya Dashami (Bada Dashain)",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Grand day of receiving red Tika, golden Jamara, and blessings from family elders."
+    },
+    {
+      "month": 7,
+      "day": 6,
+      "isPublicHoliday": true,
+      "titleNP": "दशैं एकादशी (Papankusha)",
+      "titleEN": "Dashain Ekadashi",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Continuing family reunions, feasts, and high bamboo swings (Ping)."
+    },
+    {
+      "month": 7,
+      "day": 21,
+      "isPublicHoliday": false,
+      "titleNP": "काग तिहार (Kag Tihar)",
+      "titleEN": "Kag Tihar (Crow Worship)",
+      "category": "FESTIVAL",
+      "description": "First day of Yamapanchak honoring crows as messengers of health and peace."
+    },
+    {
+      "month": 7,
+      "day": 22,
+      "isPublicHoliday": false,
+      "titleNP": "कुकुर तिहार (Kukur Tihar)",
+      "titleEN": "Kukur Tihar (Dog Worship)",
+      "category": "FESTIVAL",
+      "description": "Illuminating homes with oil lamps and honoring dogs for loyalty and protection."
+    },
+    {
+      "month": 7,
+      "day": 23,
+      "isPublicHoliday": true,
+      "titleNP": "लक्ष्मी पूजा (Laxmi Puja)",
+      "titleEN": "Laxmi Puja & Deepawali",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Illuminating homes with oil lamps and honoring Goddess Laxmi for prosperity."
+    },
+    {
+      "month": 7,
+      "day": 24,
+      "isPublicHoliday": true,
+      "titleNP": "गोवर्धन पूजा / म्ह पूजा",
+      "titleEN": "Govardhan Puja & Nepal Sambat",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Nepal Sambat 1147 New Year, self-worship (Mha Puja), and Govardhan reverence."
+    },
+    {
+      "month": 7,
+      "day": 25,
+      "isPublicHoliday": true,
+      "titleNP": "भाइटीका (Bhai Tika)",
+      "titleEN": "Bhai Tika (Tihar Finale)",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Sisters adorn brothers with rainbow Tika and everlasting Makhamali garlands."
+    },
+    {
+      "month": 7,
+      "day": 29,
+      "isPublicHoliday": true,
+      "titleNP": "छठ पर्व (Chhath Parva)",
+      "titleEN": "Chhath Parva (Sun God Festival)",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Ancient Vedic riverbank festival worshipping the rising and setting Sun."
+    },
+    {
+      "month": 8,
+      "day": 22,
+      "isPublicHoliday": false,
+      "titleNP": "बाला चतुर्दशी",
+      "titleEN": "Bala Chaturdashi",
+      "category": "FESTIVAL",
+      "description": "Sowing sacred Satbij seeds at Pashupatinath for peace of ancestors."
+    },
+    {
+      "month": 8,
+      "day": 28,
+      "isPublicHoliday": false,
+      "titleNP": "विवाह पञ्चमी",
+      "titleEN": "Vivah Panchami",
+      "category": "FESTIVAL",
+      "description": "Celebration of the divine marriage of Lord Ram and Goddess Sita in Janakpur."
+    },
+    {
+      "month": 9,
+      "day": 8,
+      "isPublicHoliday": true,
+      "titleNP": "उधौली पर्व / योमरी पुन्हि",
+      "titleEN": "Udhauli Parva & Yomari Punhi",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Kirat harvest thanksgiving and Newar sweet steamed Yomari dumpling feast."
+    },
+    {
+      "month": 9,
+      "day": 10,
+      "isPublicHoliday": true,
+      "titleNP": "क्रिसमस डे (Christmas)",
+      "titleEN": "Christmas Day (Dec 25)",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Global holiday celebrating love, charity, and the nativity of Jesus Christ."
+    },
+    {
+      "month": 9,
+      "day": 15,
+      "isPublicHoliday": true,
+      "titleNP": "तमु ल्होसार",
+      "titleEN": "Tamu Lhosar (Gurung New Year)",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Gurung community New Year celebrated with cultural parades and feasts."
+    },
+    {
+      "month": 9,
+      "day": 27,
+      "isPublicHoliday": true,
+      "titleNP": "राष्ट्रिय एकता दिवस / पृथ्वी जयन्ती",
+      "titleEN": "National Unity Day (Prithvi Jayanti)",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Commemorating the builder of unified modern Nepal, King Prithvi Narayan Shah."
+    },
+    {
+      "month": 10,
+      "day": 1,
+      "isPublicHoliday": true,
+      "titleNP": "माघे सङ्क्रान्ति / माघी",
+      "titleEN": "Maghe Sankranti & Maghi",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Winter festival of Chaku, Ghee, Tarul, and the Tharu New Year."
+    },
+    {
+      "month": 10,
+      "day": 16,
+      "isPublicHoliday": false,
+      "titleNP": "सहिद दिवस",
+      "titleEN": "Martyrs' Day (Sahid Diwas)",
+      "category": "NATIONAL DAY",
+      "description": "Tribute to the courageous heroes who sacrificed their lives for freedom."
+    },
+    {
+      "month": 10,
+      "day": 24,
+      "isPublicHoliday": true,
+      "titleNP": "सोनाम ल्होसार",
+      "titleEN": "Sonam Lhosar (Tamang New Year)",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Tamang New Year festival marked with monastic prayers and family gatherings."
+    },
+    {
+      "month": 10,
+      "day": 28,
+      "isPublicHoliday": false,
+      "titleNP": "सरस्वती पूजा / वसन्त पञ्चमी",
+      "titleEN": "Saraswati Puja (Vasant Panchami)",
+      "category": "FESTIVAL",
+      "description": "Worship of the Goddess of Wisdom, arts, creativity, and knowledge."
+    },
+    {
+      "month": 11,
+      "day": 7,
+      "isPublicHoliday": true,
+      "titleNP": "राष्ट्रिय प्रजातन्त्र दिवस",
+      "titleEN": "National Democracy Day",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Commemorating the triumph of popular democracy in Nepal in 2007 BS."
+    },
+    {
+      "month": 11,
+      "day": 22,
+      "isPublicHoliday": true,
+      "titleNP": "महाशिवरात्रि",
+      "titleEN": "Maha Shivaratri",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Grand night of Lord Shiva celebrated by sadhus and pilgrims at Pashupatinath."
+    },
+    {
+      "month": 11,
+      "day": 24,
+      "isPublicHoliday": true,
+      "titleNP": "अन्तर्राष्ट्रिय महिला दिवस",
+      "titleEN": "International Women's Day (Mar 8)",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Celebrating women's empowerment, rights, and remarkable global achievements."
+    },
+    {
+      "month": 11,
+      "day": 25,
+      "isPublicHoliday": true,
+      "titleNP": "ग्याल्पो ल्होसार",
+      "titleEN": "Gyalpo Lhosar (Sherpa New Year)",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Tibetan and Sherpa New Year celebrated with traditional Losar ceremonies."
+    },
+    {
+      "month": 12,
+      "day": 7,
+      "isPublicHoliday": true,
+      "titleNP": "फागु पूर्णिमा (Holi)",
+      "titleEN": "Holi (Festival of Colors)",
+      "category": "PUBLIC HOLIDAY",
+      "description": "Vibrant festival of colours celebrating spring, friendship, and joy."
+    },
+    {
+      "month": 12,
+      "day": 24,
+      "isPublicHoliday": false,
+      "titleNP": "घोडेजात्रा (Ghode Jatra)",
+      "titleEN": "Ghode Jatra (Horse Festival)",
+      "category": "CULTURAL EVENT",
+      "description": "Spectacular annual horse parades and equestrian stunts in Kathmandu valley."
+    },
+    {
+      "month": 12,
+      "day": 31,
+      "isPublicHoliday": false,
+      "titleNP": "चैते दशैं",
+      "titleEN": "Chaite Dashain",
+      "category": "FESTIVAL",
+      "description": "Spring festivities worshipping Goddess Durga Bhavani."
+    }
+  ]
+}
