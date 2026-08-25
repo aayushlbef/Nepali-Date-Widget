@@ -75,21 +75,15 @@ irm -useb https://raw.githubusercontent.com/aayushlbef/Tithify/main/install.ps1 
 > powershell -c "irm -useb https://raw.githubusercontent.com/aayushlbef/Tithify/main/install.ps1 | iex"
 > ```
 
-### 📦 Option 2: Windows Package Manager (Winget)
+### 📦 Option 2: Windows Package Manager (Winget) — _Coming Soon_
 
 ```powershell
 winget install Aayush.Tithify
 ```
 
-### 🍦 Option 3: Scoop
-
-```powershell
-scoop install https://raw.githubusercontent.com/aayushlbef/Tithify/main/tithify.json
-```
-
 ---
 
-### 💾 Option 4: Manual Download
+### 💾 Option 3: Manual Download
 
 > [!NOTE]
 > **Browser & Windows SmartScreen Warnings**
@@ -106,9 +100,54 @@ scoop install https://raw.githubusercontent.com/aayushlbef/Tithify/main/tithify.
 2. **Locking:** Right-click again and select **"Lock Position"** to make it click-through and seamless!
 3. **Open Calendar:** **Left-click** the widget at any time to open the **interactive Bikram Sambat Calendar**.
 4. **Settings:** Right-click to configure **Run at Startup**, toggle **Show Day of Week**, switch themes, or check for updates.
-5. **Uninstall (CLI):** To cleanly remove via CLI:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/aayushlbef/Tithify/main/install.ps1 | iex" -Uninstall
+
+
+---
+
+## 🤝 How to Contribute
+
+Contributions are welcome and appreciated! Whether it's a bug fix, a new feature, or improved documentation, here's how to get started.
+
+### 🧰 Prerequisites
+
+- **Windows 10/11** (the widget relies on the Win32 API and GDI+)
+- **Visual Studio 2022** (or later) with the **Desktop development with C++** workload installed
+- **Git**
+
+### 🛠️ Local Development
+
+1. **Fork** the repository and clone your fork:
+   ```bash
+   git clone https://github.com/aayushlbef/Tithify.git
+   cd Tithify
    ```
+2. Open the project in **Visual Studio** (use the solution/`.vcxproj` in this repo).
+3. Select the **Release** (or **Debug**) configuration and build.
+4. Run the compiled executable to test your changes.
 
+### 🌱 Making Changes
 
+1. Create a new branch for your work:
+   ```bash
+   git checkout -b feature/my-improvement
+   ```
+2. Make your changes, keeping commits focused and descriptive.
+3. Test thoroughly on both **Light** and **Dark** Windows themes.
+
+### 📤 Submitting
+
+1. Push your branch to your fork:
+   ```bash
+   git push origin feature/my-improvement
+   ```
+2. Open a **Pull Request** against the `main` branch of this repository.
+3. Describe what you changed and why — include screenshots for UI changes where possible.
+
+### 🐞 Reporting Issues
+
+- Search [existing issues](https://github.com/aayushlbef/Tithify/issues) before opening a new one.
+- Include your **Windows version**, **widget version**, and clear steps to reproduce.
+
+### 📜 License
+
+By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).

@@ -14,10 +14,6 @@ const OPTIONS = [
     cmd: "winget install Aayush.Tithify",
     soon: true,
   },
-  {
-    label: "Scoop",
-    cmd: "scoop install https://raw.githubusercontent.com/aayushlbef/Tithify/main/tithify.json",
-  },
 ];
 
 export default function Install() {
@@ -58,9 +54,7 @@ export default function Install() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-80px" }}
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-          className={`mt-12 mx-auto rounded-2xl bg-slate-950 border border-slate-800 text-left shadow-2xl shadow-slate-300/40 overflow-hidden transition-[max-width] duration-300 ease-out ${
-            tab === 2 ? "max-w-5xl" : "max-w-3xl"
-          }`}
+          className="mt-12 mx-auto max-w-4xl rounded-2xl bg-slate-950 border border-slate-800 text-left shadow-2xl shadow-slate-300/40 overflow-hidden"
         >
           <div className="flex items-center gap-1 px-3 pt-3">
             {OPTIONS.map((o, i) => (
