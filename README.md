@@ -67,7 +67,7 @@ The widget uses the native Windows Win32 API and GDI+ to render directly to your
 Open PowerShell and run the one-line command below:
 
 ```powershell
-irm -useb https://raw.githubusercontent.com/aayushlbef/Tithify/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/aayushlbef/Tithify/main/install.ps1 | iex
 ```
 
 > **Command Prompt (CMD):**
