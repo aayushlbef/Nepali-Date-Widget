@@ -1,6 +1,6 @@
 # Tithify — Nepali Date Windows Taskbar Widget
 
-A lightweight, native C++ desktop widget for Windows that beautifully displays the current Nepali (Bikram Sambat) date, specially designed to be viewed directly above your taskbar.
+Tithify is a lightweight, native C++ desktop widget for Windows that beautifully displays the current Nepali (Bikram Sambat) date, specially designed to be viewed directly above your taskbar.
 
 ## 🚀 Features
 
