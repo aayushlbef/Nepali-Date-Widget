@@ -65,61 +65,62 @@ function Download-FileWithSpinner {
 
     try { [Console]::CursorVisible = $false } catch {}
 
-    $client = New-Object System.Net.WebClient
-    $client.Headers.Add("User-Agent", "Tithify-Installer")
+    $req = [System.Net.HttpWebRequest]::Create($Url)
+    $req.AllowAutoRedirect = $true
+    $req.UserAgent = "Tithify-Installer"
+    $req.Timeout = 60000
 
-    $state = [PSCustomObject]@{
-        Completed = $false
-        Error     = $null
-        BytesRec  = 0
-        TotalByte = 0
+    $res = $req.GetResponse()
+    $totalBytes = $res.ContentLength
+    $stream = $res.GetResponseStream()
+
+    $destDir = Split-Path -Parent $Destination
+    if ($destDir -and -not (Test-Path $destDir)) {
+        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
     }
 
-    $progressHandler = [System.Net.DownloadProgressChangedEventHandler]{
-        param($sender, $e)
-        $state.BytesRec  = $e.BytesReceived
-        $state.TotalByte = $e.TotalBytesToReceive
-    }
+    $fileStream = [System.IO.File]::Create($Destination)
+    $buffer = New-Object byte[] 65536
+    $totalRead = 0
+    $lastUpdate = [System.DateTime]::MinValue
 
-    $completedHandler = [System.ComponentModel.AsyncCompletedEventHandler]{
-        param($sender, $e)
-        $state.Error     = $e.Error
-        $state.Completed = $true
-    }
+    try {
+        while (($bytesRead = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $fileStream.Write($buffer, 0, $bytesRead)
+            $totalRead += $bytesRead
 
-    $client.add_DownloadProgressChanged($progressHandler)
-    $client.add_DownloadFileCompleted($completedHandler)
+            $now = [System.DateTime]::Now
+            if (($now - $lastUpdate).TotalMilliseconds -ge 60) {
+                $lastUpdate = $now
+                $c = $spinChars[$spinIdx % $spinChars.Count]
+                $spinIdx++
 
-    $client.DownloadFileAsync([Uri]$Url, $Destination)
-
-    while (-not $state.Completed) {
-        $c = $spinChars[$spinIdx % $spinChars.Count]
-        $spinIdx++
-
-        if ($state.TotalByte -gt 0) {
-            $pct = [math]::Round(($state.BytesRec / $state.TotalByte) * 100)
-            $mbRec = [math]::Round($state.BytesRec / 1MB, 2)
-            $mbTot = [math]::Round($state.TotalByte / 1MB, 2)
-            $line = "  $c  Downloading Tithify_Setup.exe ($pct% · $mbRec of $mbTot MB)..."
-        } else {
-            $line = "  $c  Downloading Tithify_Setup.exe..."
+                if ($totalBytes -gt 0) {
+                    $pct = [math]::Round(($totalRead / $totalBytes) * 100)
+                    $mbRec = [math]::Round($totalRead / 1MB, 2)
+                    $mbTot = [math]::Round($totalBytes / 1MB, 2)
+                    $line = "  $c  Downloading Tithify_Setup.exe ($pct% - $mbRec of $mbTot MB)..."
+                } else {
+                    $mbRec = [math]::Round($totalRead / 1MB, 2)
+                    $line = "  $c  Downloading Tithify_Setup.exe ($mbRec MB)..."
+                }
+                Write-Host "`r$line" -NoNewline -ForegroundColor Cyan
+            }
         }
-        Write-Host "`r$line" -NoNewline -ForegroundColor Cyan
-        Start-Sleep -Milliseconds 60
+    } finally {
+        $fileStream.Flush()
+        $fileStream.Close()
+        $fileStream.Dispose()
+        $stream.Close()
+        $stream.Dispose()
+        $res.Close()
+        $res.Dispose()
     }
 
     # Erase spinner line
     $pad = " " * 80
     Write-Host "`r$pad`r" -NoNewline
     try { [Console]::CursorVisible = $true } catch {}
-
-    $client.remove_DownloadProgressChanged($progressHandler)
-    $client.remove_DownloadFileCompleted($completedHandler)
-    $client.Dispose()
-
-    if ($state.Error) {
-        throw $state.Error
-    }
 }
 
 function Invoke-ProcessWithSpinner {
@@ -275,5 +276,5 @@ try {
     Write-Host ""
     Write-Fail "Installation failed: $_"
     Write-Host ""
-    exit 1
+    return
 }
