@@ -6,4 +6,4 @@
 // up requesting the image at the domain root instead of under the repo
 // subpath, which 404s. Prefixing manually here works around it.
 export const basePath =
-  process.env.NODE_ENV === "production" ? "/Nepali-Date-Widget" : "";
+  process.env.NODE_ENV === "production" ? "/Tithify" : "";

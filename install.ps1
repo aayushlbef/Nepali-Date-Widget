@@ -22,7 +22,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-Write-Host "[DEBUG] Script body started at $(Get-Date -Format 'HH:mm:ss.fff')" -ForegroundColor Magenta
 
 # Configuration
 $Repo = "aayushlbef/Tithify"

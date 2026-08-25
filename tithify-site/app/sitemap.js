@@ -1,7 +1,7 @@
 export default function sitemap() {
   return [
     {
-      url: "https://aayushlbef.github.io/Nepali-Date-Widget",
+      url: "https://aayushlbef.github.io/Tithify",
       lastModified: new Date(),
       changeFrequency: "monthly",
       priority: 1,
