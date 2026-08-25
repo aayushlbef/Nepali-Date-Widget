@@ -65,6 +65,24 @@ function Download-FileWithSpinner {
         [string]$Destination
     )
 
+    $destDir = Split-Path -Parent $Destination
+    if ($destDir -and -not (Test-Path $destDir)) {
+        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+    }
+
+    # 1. Fast path: native Windows curl.exe (built-in to Windows 10/11)
+    # Uses HTTP/2, RFC 8305 Happy Eyeballs DNS, zero IPv6 stall, and native progress
+    $curl = Get-Command "curl.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1
+    if ($curl -and (Test-Path $curl)) {
+        Write-Step "Downloading Tithify_Setup.exe..."
+        & $curl -# -fL --retry 2 --connect-timeout 10 -o $Destination $Url
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 100000)) {
+            return
+        }
+    }
+
+    # 2. Fallback path: .NET HttpWebRequest with custom spinner
+    Write-Step "Connecting to download server..."
     $spinChars = [char[]]@(0x2838, 0x2830, 0x2810, 0x2800,
                             0x2801, 0x2803, 0x2807, 0x280F,
                             0x281F, 0x283F, 0x287F, 0x28FF,
@@ -77,15 +95,11 @@ function Download-FileWithSpinner {
     $req.AllowAutoRedirect = $true
     $req.UserAgent = "Tithify-Installer"
     $req.Timeout = 60000
+    $req.Proxy = $null
 
     $res = $req.GetResponse()
     $totalBytes = $res.ContentLength
     $stream = $res.GetResponseStream()
-
-    $destDir = Split-Path -Parent $Destination
-    if ($destDir -and -not (Test-Path $destDir)) {
-        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-    }
 
     $fileStream = [System.IO.File]::Create($Destination)
     $buffer = New-Object byte[] 65536
