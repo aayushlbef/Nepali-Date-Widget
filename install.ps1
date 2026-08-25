@@ -38,67 +38,6 @@ function Write-BrandHeader {
     Write-Host ""
 }
 
-# ---------------------------------------------------------------------------
-# Spinner — animates on the current line while $Action runs.
-# Uses ThreadJob when available (PS 7+); falls back to a simple dot-ticker
-# on Windows PowerShell 5.1.
-# ---------------------------------------------------------------------------
-function Invoke-WithSpinner {
-    param(
-        [string]       $Message,
-        [ScriptBlock]  $Action,
-        [ConsoleColor] $Color = [ConsoleColor]::Cyan
-    )
-
-    $spinChars = [char[]]@(0x2838, 0x2830, 0x2810, 0x2800,
-                            0x2801, 0x2803, 0x2807, 0x280F,
-                            0x281F, 0x283F, 0x287F, 0x28FF,
-                            0x28F7, 0x28E3, 0x28C1, 0x2880)
-    $spinIndex = 0
-
-    try { [Console]::CursorVisible = $false } catch {}
-
-    $hasThreadJob = (Get-Command Start-ThreadJob -ErrorAction SilentlyContinue) -ne $null
-    $result = $null
-    $err    = $null
-
-    if ($hasThreadJob) {
-        $job = Start-ThreadJob -ScriptBlock $Action
-
-        while ($job.State -eq 'Running') {
-            $spin = $spinChars[$spinIndex % $spinChars.Count]
-            $line = "  $spin  $Message"
-            Write-Host "`r$line" -NoNewline -ForegroundColor $Color
-            $spinIndex++
-            Start-Sleep -Milliseconds 60
-        }
-
-        # Erase spinner line
-        $pad = " " * ("  $Message  ".Length + 4)
-        Write-Host "`r$pad`r" -NoNewline
-
-        if ($job.State -eq 'Failed') {
-            $err = $job.ChildJobs[0].Error[0]
-        } else {
-            $result = Receive-Job -Job $job -ErrorAction SilentlyContinue
-        }
-        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-
-    } else {
-        # PS 5.1 fallback: dot ticker in the same process
-        Write-Host "  ...  $Message" -NoNewline -ForegroundColor $Color
-        try   { $result = & $Action }
-        catch { $err = $_ }
-        $pad = " " * ("  ...  $Message".Length + 2)
-        Write-Host "`r$pad`r" -NoNewline
-    }
-
-    try { [Console]::CursorVisible = $true } catch {}
-
-    if ($err) { throw $err }
-    return $result
-}
-
 function Write-Step {
     param([string]$Text, [ConsoleColor]$Color = [ConsoleColor]::Cyan)
     Write-Host "  ==>  $Text" -ForegroundColor $Color
@@ -106,6 +45,116 @@ function Write-Step {
 function Write-OK   { param([string]$Text) Write-Host "  [+]  $Text" -ForegroundColor Green  }
 function Write-Warn { param([string]$Text) Write-Host "  [!]  $Text" -ForegroundColor Yellow }
 function Write-Fail { param([string]$Text) Write-Host "  [-]  $Text" -ForegroundColor Red    }
+
+# ---------------------------------------------------------------------------
+# Spinner Helpers: Native .NET & PowerShell with ZERO external dependencies
+# Works reliably in Windows PowerShell 5.1, PowerShell 7+, and irm | iex
+# ---------------------------------------------------------------------------
+
+function Download-FileWithSpinner {
+    param(
+        [string]$Url,
+        [string]$Destination
+    )
+
+    $spinChars = [char[]]@(0x2838, 0x2830, 0x2810, 0x2800,
+                            0x2801, 0x2803, 0x2807, 0x280F,
+                            0x281F, 0x283F, 0x287F, 0x28FF,
+                            0x28F7, 0x28E3, 0x28C1, 0x2880)
+    $spinIdx = 0
+
+    try { [Console]::CursorVisible = $false } catch {}
+
+    $client = New-Object System.Net.WebClient
+    $client.Headers.Add("User-Agent", "Tithify-Installer")
+
+    $state = [PSCustomObject]@{
+        Completed = $false
+        Error     = $null
+        BytesRec  = 0
+        TotalByte = 0
+    }
+
+    $progressHandler = [System.Net.DownloadProgressChangedEventHandler]{
+        param($sender, $e)
+        $state.BytesRec  = $e.BytesReceived
+        $state.TotalByte = $e.TotalBytesToReceive
+    }
+
+    $completedHandler = [System.ComponentModel.AsyncCompletedEventHandler]{
+        param($sender, $e)
+        $state.Error     = $e.Error
+        $state.Completed = $true
+    }
+
+    $client.add_DownloadProgressChanged($progressHandler)
+    $client.add_DownloadFileCompleted($completedHandler)
+
+    $client.DownloadFileAsync([Uri]$Url, $Destination)
+
+    while (-not $state.Completed) {
+        $c = $spinChars[$spinIdx % $spinChars.Count]
+        $spinIdx++
+
+        if ($state.TotalByte -gt 0) {
+            $pct = [math]::Round(($state.BytesRec / $state.TotalByte) * 100)
+            $mbRec = [math]::Round($state.BytesRec / 1MB, 2)
+            $mbTot = [math]::Round($state.TotalByte / 1MB, 2)
+            $line = "  $c  Downloading Tithify_Setup.exe ($pct% · $mbRec of $mbTot MB)..."
+        } else {
+            $line = "  $c  Downloading Tithify_Setup.exe..."
+        }
+        Write-Host "`r$line" -NoNewline -ForegroundColor Cyan
+        Start-Sleep -Milliseconds 60
+    }
+
+    # Erase spinner line
+    $pad = " " * 80
+    Write-Host "`r$pad`r" -NoNewline
+    try { [Console]::CursorVisible = $true } catch {}
+
+    $client.remove_DownloadProgressChanged($progressHandler)
+    $client.remove_DownloadFileCompleted($completedHandler)
+    $client.Dispose()
+
+    if ($state.Error) {
+        throw $state.Error
+    }
+}
+
+function Invoke-ProcessWithSpinner {
+    param(
+        [string]$FilePath,
+        [string]$ArgumentList,
+        [string]$Message,
+        [ConsoleColor]$Color = [ConsoleColor]::Cyan
+    )
+
+    $spinChars = [char[]]@(0x2838, 0x2830, 0x2810, 0x2800,
+                            0x2801, 0x2803, 0x2807, 0x280F,
+                            0x281F, 0x283F, 0x287F, 0x28FF,
+                            0x28F7, 0x28E3, 0x28C1, 0x2880)
+    $spinIdx = 0
+
+    try { [Console]::CursorVisible = $false } catch {}
+
+    $proc = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -PassThru
+
+    while (-not $proc.HasExited) {
+        $c = $spinChars[$spinIdx % $spinChars.Count]
+        $spinIdx++
+        $line = "  $c  $Message"
+        Write-Host "`r$line" -NoNewline -ForegroundColor $Color
+        Start-Sleep -Milliseconds 60
+    }
+
+    # Erase spinner line
+    $pad = " " * 80
+    Write-Host "`r$pad`r" -NoNewline
+    try { [Console]::CursorVisible = $true } catch {}
+
+    return $proc.ExitCode
+}
 
 # --- UNINSTALL FLOW --------------------------------------------------------
 if ($Uninstall) {
@@ -117,15 +166,15 @@ if ($Uninstall) {
     Start-Sleep -Milliseconds 500
 
     if (Test-Path $Uninstaller) {
-        Invoke-WithSpinner -Message "Running uninstaller..." -Color Gray -Action {
-            Start-Process -FilePath $using:Uninstaller `
-                          -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
-        }
+        $exitCode = Invoke-ProcessWithSpinner `
+            -FilePath $Uninstaller `
+            -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" `
+            -Message "Running uninstaller..." `
+            -Color Gray
+
         Write-OK "$AppName uninstalled successfully."
     } elseif (Test-Path $InstallDir) {
-        Invoke-WithSpinner -Message "Removing files..." -Color Gray -Action {
-            Remove-Item -Path $using:InstallDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
+        Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
         Write-OK "Removed: $InstallDir"
     } else {
         Write-Warn "$AppName does not appear to be installed."
@@ -169,10 +218,7 @@ try {
     Write-Host ""
 
     # ── Step 1 · Download ──────────────────────────────────────────────
-    Invoke-WithSpinner -Message "Downloading Tithify_Setup.exe..." -Action {
-        $ProgressPreference = 'SilentlyContinue'
-        Invoke-WebRequest -Uri $using:DownloadUrl -OutFile $using:TempInstaller -UseBasicParsing
-    }
+    Download-FileWithSpinner -Url $DownloadUrl -Destination $TempInstaller
 
     if (-not (Test-Path $TempInstaller) -or ((Get-Item $TempInstaller).Length -lt 100000)) {
         throw "Download failed or file is corrupted."
@@ -184,13 +230,11 @@ try {
     Unblock-File -Path $TempInstaller -ErrorAction SilentlyContinue
 
     # ── Step 2 · Install ───────────────────────────────────────────────
-    $exitCode = $null
-    Invoke-WithSpinner -Message "Installing Tithify to $InstallDir..." -Action {
-        $p = Start-Process -FilePath $using:TempInstaller `
-                           -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-" `
-                           -PassThru -Wait
-        return $p.ExitCode
-    } | ForEach-Object { $exitCode = $_ }
+    $exitCode = Invoke-ProcessWithSpinner `
+        -FilePath $TempInstaller `
+        -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-" `
+        -Message "Installing Tithify to $InstallDir..." `
+        -Color Cyan
 
     Remove-Item -Path $TempInstaller -Force -ErrorAction SilentlyContinue
 
