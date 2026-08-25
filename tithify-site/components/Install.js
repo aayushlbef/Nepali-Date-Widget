@@ -7,7 +7,7 @@ import { Check, Copy, Terminal } from "lucide-react";
 const OPTIONS = [
   {
     label: "PowerShell",
-    cmd: "irm https://raw.githubusercontent.com/aayushlbef/Tithify/main/install.ps1 | iex",
+    cmd: "irm -useb https://raw.githubusercontent.com/aayushlbef/Tithify/main/install.ps1 | iex",
   },
   {
     label: "Winget",

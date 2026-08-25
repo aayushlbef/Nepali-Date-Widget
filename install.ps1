@@ -22,6 +22,14 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
+# Configure modern TLS and connection limits immediately
+try {
+    [Net.ServicePointManager]::SecurityProtocol =
+        [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+    [Net.ServicePointManager]::DefaultConnectionLimit = 10
+} catch {}
 
 # Configuration
 $Repo = "aayushlbef/Tithify"
