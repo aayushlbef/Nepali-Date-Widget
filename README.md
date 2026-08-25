@@ -1,4 +1,4 @@
-# Nepali Date Taskbar Widget
+# Tithify — Nepali Date Windows Taskbar Widget
 
 A lightweight, native C++ desktop widget for Windows that beautifully displays the current Nepali (Bikram Sambat) date, specially designed to be viewed directly above your taskbar.
 
@@ -30,7 +30,7 @@ Click the widget to open a full **Bikram Sambat Calendar** popup — powered by 
 The calendar automatically fetches and displays Nepali public holidays and cultural events for the current BS year.
 
 - **Online Auto-Fetch:** On first launch, holiday data is downloaded from GitHub (with jsDelivr CDN as a fallback) in a background thread — the UI never freezes.
-- **Smart Local Cache:** Downloaded holidays are saved in an XOR-encoded binary `.dat` file under `%LOCALAPPDATA%\NepaliDateWidget\` so they load instantly on every subsequent launch.
+- **Smart Local Cache:** Downloaded holidays are saved in an XOR-encoded binary `.dat` file under `%LOCALAPPDATA%\Tithify\` so they load instantly on every subsequent launch.
 - **Event Flyout Panel:** Clicking on any day with an event shows a speech-bubble flyout with:
   - Full Nepali (Devanagari) and English event title
   - Event category badge (e.g., **PUBLIC HOLIDAY**, **FESTIVAL / पर्व**)
@@ -60,16 +60,55 @@ The widget uses the native Windows Win32 API and GDI+ to render directly to your
 - **WinHTTP API:** Update checks and holiday fetching are performed safely on detached background threads using native Windows networking to ensure the UI never stutters.
 - **Live Theme Sync:** Listens for `WM_SETTINGCHANGE` (ImmersiveColorSet) to detect and apply Windows theme changes in real-time.
 
-## 🏃 Getting Started
+## 🏃 Installation
+
+### ⚡ Option 1: Fast Command-Line Install (PowerShell)
+
+Open PowerShell and run the one-line command below:
+
+```powershell
+irm https://raw.githubusercontent.com/aayushlbef/Tithify/main/install.ps1 | iex
+```
+
+> **Command Prompt (CMD):**
+> ```cmd
+> powershell -c "irm https://raw.githubusercontent.com/aayushlbef/Tithify/main/install.ps1 | iex"
+> ```
+
+### 📦 Option 2: Windows Package Manager (Winget)
+
+```powershell
+winget install Aayush.Tithify
+```
+
+### 🍦 Option 3: Scoop
+
+```powershell
+scoop install https://raw.githubusercontent.com/aayushlbef/Tithify/main/tithify.json
+```
+
+---
+
+### 💾 Option 4: Manual Download
 
 > [!NOTE]
 > **Browser & Windows SmartScreen Warnings**
-> Because this is a new, free open-source project, it does not yet have a paid code-signing certificate. Your web browser (like Chrome/Edge) or Windows SmartScreen might initially flag the download as "risky" or "unrecognized". This is completely normal for new indie software. You can safely bypass these warnings by clicking **Keep -> Keep anyway** in your browser, and **More Info -> Run Anyway** in Windows.
+> Because this is a free open-source project without a paid EV code-signing certificate, your web browser or Windows SmartScreen might initially show a warning for new releases. You can safely bypass it by clicking **Keep -> Keep anyway** in your browser, and **More Info -> Run Anyway** in Windows.
 
-1. Download **`NepaliDateWidget_v3.4.2.zip`** from the latest Release. *(We distribute it as a .zip to help reduce aggressive browser download blocks).*
-2. Extract the `.zip` file to find `NepaliDateWidget_Setup.exe`.
-3. Run the installer to add it to your system.
-4. Right-click the widget to unlock its position and drag it to your preferred spot on your screen.
-5. Right-click again and select **"Lock Position"** to make it click-through and transparent!
-6. **Left-click** the widget at any time to open the **interactive Nepali Calendar**.
-7. Use the right-click menu to configure it to **Run at Startup**, toggle the **Show Day** feature, or **Check for Updates**.
+1. Download **`Tithify_v3.6.0.zip`** or `Tithify_Setup.exe` from the [Latest Release](https://github.com/aayushlbef/Tithify/releases/latest).
+2. Run `Tithify_Setup.exe` to install.
+
+---
+
+## 🎯 Getting Started & Usage
+
+1. **Positioning:** Right-click the widget to unlock its position and drag it to your preferred spot on your screen / taskbar.
+2. **Locking:** Right-click again and select **"Lock Position"** to make it click-through and seamless!
+3. **Open Calendar:** **Left-click** the widget at any time to open the **interactive Bikram Sambat Calendar**.
+4. **Settings:** Right-click to configure **Run at Startup**, toggle **Show Day of Week**, switch themes, or check for updates.
+5. **Uninstall (CLI):** To cleanly remove via CLI:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/aayushlbef/Tithify/main/install.ps1 | iex" -Uninstall
+   ```
+
+

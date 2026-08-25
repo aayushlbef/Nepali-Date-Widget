@@ -1,12 +1,12 @@
-; Nepali Date Widget - Inno Setup Installer Script
+; Tithify - Inno Setup Installer Script
 ; Compiles to a single Setup.exe that installs the widget
 
-#define MyAppName "Nepali Date Widget"
-#define MyAppVersion "3.4.2"
+#define MyAppName "Tithify"
+#define MyAppVersion "3.6.0"
 #define MyAppPublisher "Aayush"
-#define MyAppURL "https://github.com/aayushlbef/Nepali-Date-Widget"
-#define MyAppExeName "NepaliDateWidget.exe"
-#define MyAppWebsite "https://aayushlbef.github.io/Nepali-Date-Widget/"
+#define MyAppURL "https://github.com/aayushlbef/Tithify"
+#define MyAppExeName "Tithify.exe"
+#define MyAppWebsite "https://aayushlbef.github.io/Tithify/"
 
 [Setup]
 ; Unique App ID - DO NOT change this after first release
@@ -20,10 +20,13 @@ AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases
 DefaultDirName={localappdata}\{#MyAppName}
 DefaultGroupName={#MyAppName}
+UsePreviousAppDir=no
+UsePreviousGroup=no
+DirExistsWarning=no
 DisableProgramGroupPage=yes
 LicenseFile=LICENSE
 OutputDir=installer_output
-OutputBaseFilename=NepaliDateWidget_Setup
+OutputBaseFilename=Tithify_Setup
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\icon.ico
 Compression=lzma2/ultra64
@@ -43,7 +46,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "startuprun"; Description: "Launch at Windows startup"; GroupDescription: "Other options:"
 
 [Files]
-Source: "NepaliDateWidget.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Tithify.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
@@ -53,25 +56,44 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilen
 
 [Registry]
 ; Add to startup if user checked the option
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "NepaliDateWidget"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: startuprun
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Tithify"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: startuprun
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-Filename: "{#MyAppWebsite}"; Description: "Visit the Nepali Date Widget website"; Flags: shellexec nowait postinstall skipifsilent
+Filename: "{#MyAppWebsite}"; Description: "Visit the Tithify website"; Flags: shellexec nowait postinstall skipifsilent
 
 [UninstallDelete]
+Type: files; Name: "{app}\tithify.cfg"
 Type: files; Name: "{app}\widget.cfg"
 
 [Code]
-// Kill running instance before install/uninstall
+// Kill running instance before install/uninstall and migrate old settings
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
+  OldDir, OldCfg, NewCfg: String;
 begin
   if CurStep = ssInstall then
   begin
+    Exec('taskkill', '/F /IM Tithify.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Exec('taskkill', '/F /IM NepaliDateWidget.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Sleep(500);
+  end
+  else if CurStep = ssPostInstall then
+  begin
+    // Migrate legacy config if present
+    OldDir := ExpandConstant('{localappdata}\Nepali Date Widget');
+    OldCfg := OldDir + '\widget.cfg';
+    NewCfg := ExpandConstant('{app}\tithify.cfg');
+    if FileExists(OldCfg) and not FileExists(NewCfg) then
+    begin
+      CopyFile(OldCfg, NewCfg, False);
+    end;
+    // Clean up old legacy directory if it exists
+    if DirExists(OldDir) then
+    begin
+      DelTree(OldDir, True, True, True);
+    end;
   end;
 end;
 
@@ -81,6 +103,7 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
+    Exec('taskkill', '/F /IM Tithify.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Exec('taskkill', '/F /IM NepaliDateWidget.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Sleep(500);
   end;

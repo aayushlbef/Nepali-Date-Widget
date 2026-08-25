@@ -1,0 +1,242 @@
+"use client";
+
+import { useRef } from "react";
+import Image from "next/image";
+import { motion, useScroll, useTransform } from "framer-motion";
+import WidgetPill from "./WidgetPill";
+import { Grid2x2, Search, Folder, Compass, MonitorSmartphone } from "lucide-react";
+import { basePath } from "@/lib/basePath";
+
+export default function Hero() {
+  const ref = useRef(null);
+  const { scrollYProgress } = useScroll({
+    target: ref,
+    offset: ["start start", "end start"],
+  });
+
+  // 0 = deep night, 1 = full day — this single value drives the whole scene.
+  const progress = useTransform(scrollYProgress, [0, 1], [0, 1]);
+
+  const skyTop = useTransform(progress, [0, 0.6, 1], ["#060912", "#16213f", "#bcdcff"]);
+  const skyBottom = useTransform(progress, [0, 0.6, 1], ["#0b1120", "#25335c", "#eaf4ff"]);
+  const mountainFar = useTransform(progress, [0, 1], ["#131c33", "#a9c3e6"]);
+  const mountainMid = useTransform(progress, [0, 1], ["#0e1526", "#7fa3d6"]);
+  const mountainNear = useTransform(progress, [0, 1], ["#080c17", "#4d6fa8"]);
+  const snowGlow = useTransform(progress, [0, 1], ["#c9d6f2", "#ffffff"]);
+  const starOpacity = useTransform(progress, [0, 0.5, 0.8], [1, 0.4, 0]);
+  const celestialY = useTransform(progress, [0, 1], [40, 140]);
+  const moonOpacity = useTransform(progress, [0, 0.55], [1, 0]);
+  const sunOpacity = useTransform(progress, [0.45, 1], [0, 1]);
+  const eyebrowBg = useTransform(progress, [0, 1], ["rgba(255,255,255,0.06)", "rgba(15,23,42,0.06)"]);
+  const eyebrowBorder = useTransform(progress, [0, 1], ["rgba(255,255,255,0.12)", "rgba(15,23,42,0.12)"]);
+  const eyebrowText = useTransform(progress, [0, 1], ["#e2e8f0", "#334155"]);
+  const dotColor = useTransform(progress, [0, 1], ["#dc2626", "#2563eb"]);
+  const headlineA = useTransform(progress, [0, 1], ["#ffffff", "#0f172a"]);
+  const bodyText = useTransform(progress, [0, 1], ["#cbd5e1", "#475569"]);
+  const secondaryText = useTransform(progress, [0, 1], ["#93c5fd", "#1d4ed8"]);
+  const taskbarBg = useTransform(progress, [0, 1], ["rgba(10,14,26,0.85)", "rgba(255,255,255,0.75)"]);
+  const taskbarIcon = useTransform(progress, [0, 1], ["#e2e8f0", "#1e293b"]);
+  const taskbarBorder = useTransform(progress, [0, 1], ["rgba(255,255,255,0.08)", "rgba(15,23,42,0.1)"]);
+
+  return (
+    <section ref={ref} className="relative h-[190vh]">
+      <div className="sticky top-0 h-screen w-full overflow-hidden">
+        <motion.div
+          className="absolute inset-0"
+          style={{ background: useTransform([skyTop, skyBottom], ([t, b]) => `linear-gradient(180deg, ${t} 0%, ${b} 100%)`) }}
+        />
+
+        {/* stars */}
+        <motion.div style={{ opacity: starOpacity }} className="absolute inset-0">
+          {STARS.map((s, i) => (
+            <span
+              key={i}
+              className="absolute rounded-full bg-white animate-twinkle"
+              style={{
+                top: s.top,
+                left: s.left,
+                width: s.size,
+                height: s.size,
+                animationDelay: `${s.delay}s`,
+              }}
+            />
+          ))}
+        </motion.div>
+
+        {/* moon / sun */}
+        <motion.div
+          className="absolute right-[12%] md:right-[18%]"
+          style={{ top: celestialY }}
+        >
+          <motion.div
+            style={{ opacity: moonOpacity }}
+            className="absolute w-16 h-16 md:w-24 md:h-24 rounded-full bg-[#f4f1ea] shadow-[0_0_70px_18px_rgba(244,241,234,0.35)]"
+          >
+            <div className="absolute top-2 left-3 w-4 h-4 rounded-full bg-black/10" />
+            <div className="absolute bottom-3 right-4 w-3 h-3 rounded-full bg-black/10" />
+          </motion.div>
+          <motion.div
+            style={{ opacity: sunOpacity }}
+            className="absolute w-16 h-16 md:w-24 md:h-24 rounded-full bg-gradient-to-br from-amber-200 to-orange-300 shadow-[0_0_90px_28px_rgba(251,191,36,0.45)]"
+          />
+        </motion.div>
+
+        {/* mountains */}
+        <motion.svg
+          viewBox="0 0 1440 500"
+          preserveAspectRatio="none"
+          className="absolute bottom-[9vh] left-0 w-full h-[46vh] md:h-[52vh]"
+        >
+          <motion.path
+            d="M0 340 L180 220 L340 300 L520 160 L700 280 L880 190 L1060 320 L1240 210 L1440 300 L1440 500 L0 500 Z"
+            style={{ fill: mountainFar }}
+          />
+          <motion.path
+            d="M0 400 L220 300 L420 380 L620 260 L860 400 L1080 290 L1440 400 L1440 500 L0 500 Z"
+            style={{ fill: mountainMid }}
+          />
+          <motion.path
+            d="M0 460 L260 380 L520 450 L760 360 L1000 450 L1260 380 L1440 440 L1440 500 L0 500 Z"
+            style={{ fill: mountainNear }}
+          />
+          {/* snow caps */}
+          <motion.path d="M500 165 L520 160 L560 195 L520 190 Z" style={{ fill: snowGlow }} opacity={0.9} />
+          <motion.path d="M860 195 L880 190 L915 220 L878 216 Z" style={{ fill: snowGlow }} opacity={0.9} />
+          <motion.path d="M1220 216 L1240 210 L1278 240 L1238 236 Z" style={{ fill: snowGlow }} opacity={0.9} />
+        </motion.svg>
+
+        {/* floating leaves (day) */}
+        <motion.div style={{ opacity: sunOpacity }} className="absolute inset-0 pointer-events-none">
+          <span className="absolute top-[18%] left-[8%] text-2xl animate-drift">🍃</span>
+          <span className="absolute top-[30%] left-[85%] text-xl animate-drift" style={{ animationDelay: "1.5s" }}>🍃</span>
+        </motion.div>
+
+        {/* content */}
+        <div className="relative z-10 h-full max-w-7xl mx-auto px-6 md:px-10 flex flex-col justify-center pb-[22vh] pt-12">
+          <motion.div
+            style={{ backgroundColor: eyebrowBg, borderColor: eyebrowBorder, color: eyebrowText }}
+            className="inline-flex w-fit items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-medium mb-8"
+          >
+            <motion.span style={{ backgroundColor: dotColor }} className="w-2 h-2 rounded-full" />
+            Lightweight. Native. Beautiful.
+          </motion.div>
+
+          <div className="max-w-2xl">
+            <motion.h1
+              style={{ color: headlineA }}
+              className="font-display text-5xl sm:text-6xl md:text-7xl font-extrabold leading-[1.02] tracking-tight"
+            >
+              Your{" "}
+              <span className="bg-gradient-to-r from-crimson via-rose-500 to-sapphire bg-clip-text text-transparent">
+                Nepali Date,
+              </span>
+              <br />
+              Your Way.
+            </motion.h1>
+
+            <motion.p style={{ color: bodyText }} className="mt-6 text-lg md:text-xl leading-relaxed max-w-lg">
+              A desktop widget that shows the Nepali (Bikram Sambat) date, specially designed to directly view above your taskbar.
+            </motion.p>
+
+            <div className="mt-9 flex flex-wrap items-center gap-6"> 
+              <a
+                href="#install"
+                className="focus-ring group inline-flex items-center gap-2 rounded-xl bg-crimson hover:bg-crimson-dark px-6 py-3.5 font-display font-semibold text-white shadow-glow-crimson transition-all hover:scale-[1.03] active:scale-[0.98]"
+              >
+                <MonitorSmartphone className="w-5 h-5" />
+                Get it now
+                <span className="transition-transform group-hover:translate-x-1">→</span>
+              </a>
+              <a
+                href="#preview"
+                className="focus-ring inline-flex items-center gap-2 font-medium underline-offset-4 hover:underline"
+              >
+                <motion.span style={{ color: secondaryText }} className="inline-flex items-center gap-2">
+                  <PlayDot /> See it in action
+                </motion.span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        {/* floating widget above the taskbar */}
+        {/* <motion.div
+          className="absolute bottom-[9.5vh] right-6 md:right-16 z-20"
+          animate={{ y: [0, -8, 0] }}
+          transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+        >
+          <WidgetPill progress={progress} size="lg" />
+        </motion.div> */}
+
+        {/* taskbar mockup */}
+        <motion.div
+          style={{ backgroundColor: taskbarBg, borderColor: taskbarBorder }}
+          className="absolute bottom-0 left-0 right-0 grid h-[9vh] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-t px-6 backdrop-blur-xl md:px-10"
+        >
+          <div className="flex min-w-0 items-center">
+            <div className="relative h-[4vh] w-full max-w-[11rem] overflow-hidden">
+              <Image
+                src={`${basePath}/widiget_transparent_shot.png`}
+                alt="Tithify Nepali Date widget preview"
+                fill
+                sizes="176px"
+                priority
+                className="object-cover object-center"
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-center gap-5">
+            <IconBox color={taskbarIcon}><Grid2x2 className="w-4 h-4" /></IconBox>
+            <IconBox color={taskbarIcon}><Search className="w-4 h-4" /></IconBox>
+            <IconBox color={taskbarIcon}><Folder className="w-4 h-4" /></IconBox>
+            <IconBox color={taskbarIcon}><Compass className="w-4 h-4" /></IconBox>
+          </div>
+          <motion.div style={{ color: taskbarIcon }} className="justify-self-end text-xs font-medium tabular-nums md:text-sm">
+            11:45 AM · May 7, 2026
+          </motion.div>
+        </motion.div>
+
+        {/* scroll cue */}
+        <div className="absolute bottom-[10.5vh] left-1/2 -translate-x-1/2 z-20 md:block hidden">
+          <motion.div
+            animate={{ y: [0, 8, 0] }}
+            transition={{ duration: 1.8, repeat: Infinity }}
+            style={{ color: eyebrowText }}
+            className="text-[11px] tracking-[0.2em] uppercase opacity-60"
+          >
+            Scroll — watch the theme wake up
+          </motion.div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function IconBox({ children, color }) {
+  return (
+    <motion.div style={{ color }} className="w-4 h-4 flex items-center justify-center opacity-90">
+      {children}
+    </motion.div>
+  );
+}
+
+function PlayDot() {
+  return (
+    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-current">
+      <span className="w-0 h-0 border-y-[5px] border-y-transparent border-l-[7px] border-l-current ml-0.5" />
+    </span>
+  );
+}
+
+// Deterministic pseudo-random star field (avoids SSR/client hydration mismatch).
+function seeded(i, mult) {
+  const x = Math.sin(i * mult) * 10000;
+  return x - Math.floor(x);
+}
+
+const STARS = Array.from({ length: 60 }).map((_, i) => ({
+  top: `${seeded(i, 12.9898) * 55}%`,
+  left: `${seeded(i, 78.233) * 100}%`,
+  size: `${seeded(i, 45.164) * 2 + 1}px`,
+  delay: seeded(i, 94.673) * 3,
+}));

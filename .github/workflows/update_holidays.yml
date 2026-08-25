@@ -1,4 +1,4 @@
-﻿name: Update Nepali Holidays Database
+name: Update Nepali Holidays Database
 
 on:
   schedule:
@@ -27,7 +27,7 @@ jobs:
 
       - name: Run Holiday Data Generator
         run: |
-          python data/generate_data.py
+          python data/generate_data.py --auto
 
       - name: Commit and Push Changes
         run: |

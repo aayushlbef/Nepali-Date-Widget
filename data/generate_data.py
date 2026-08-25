@@ -1327,25 +1327,220 @@ years_data = {
             "titleEN": "Ghode Jatra (Horse Festival)",
             "category": "CULTURAL EVENT",
             "description": "Spectacular annual horse parades and equestrian stunts in Kathmandu valley."
-        },
-        {
-            "month": 12, "day": 31, "isPublicHoliday": False,
-            "titleNP": "चैते दशैं",
-            "titleEN": "Chaite Dashain",
-            "category": "FESTIVAL",
-            "description": "Spring festivities worshipping Goddess Durga Bhavani."
         }
     ]
 }
 
-os.makedirs('data', exist_ok=True)
-for year, holidays in years_data.items():
-    filepath = os.path.join('data', f'holidays_{year}.json')
-    data = {
-        "year": year,
-        "count": len(holidays),
-        "holidays": holidays
-    }
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    print(f"Generated {filepath} with {len(holidays)} events.")
+import urllib.request
+import ssl
+import re
+import sys
+import time
+import datetime
+
+COMMON_TRANSLATIONS = {
+    "नयाँ वर्ष": "Nepali New Year",
+    "लोकतन्त्र दिवस": "Democracy Day",
+    "श्रमिक दिवस": "Labour Day (May 1)",
+    "मजदुर दिवस": "Labour Day",
+    "बुद्ध जयन्ती": "Buddha Jayanti",
+    "उभौली": "Ubhauli Parva",
+    "गणतन्त्र दिवस": "Republic Day",
+    "वातावरण दिवस": "World Environment Day",
+    "धान दिवस": "National Paddy Day",
+    "दही चिउरा": "Dahi Chiura",
+    "गुरु पूर्णिमा": "Guru Purnima",
+    "साउने सङ्क्रान्ति": "Saune Sankranti",
+    "खीर खाने दिन": "Kheer Khane Din",
+    "जनै पूर्णिमा": "Janai Purnima",
+    "रक्षाबन्धन": "Rakshya Bandhan",
+    "गाईजात्रा": "Gai Jatra",
+    "श्रीकृष्ण जन्माष्टमी": "Krishna Janmashtami",
+    "गौरा पर्व": "Gaura Parva",
+    "निजामती सेवा दिवस": "Civil Service Day",
+    "हरितालिका तीज": "Haritalika Teej",
+    "ऋषि पञ्चमी": "Rishi Panchami",
+    "संविधान दिवस": "Constitution Day",
+    "इन्द्रजात्रा": "Indra Jatra",
+    "घटस्थापना": "Ghatasthapana",
+    "फूलपाती": "Fulpati",
+    "महाअष्टमी": "Maha Ashtami",
+    "महानवमी": "Maha Navami",
+    "विजया दशमी": "Vijaya Dashami (Bada Dashain)",
+    "काग तिहार": "Kag Tihar",
+    "कुकुर तिहार": "Kukur Tihar",
+    "लक्ष्मी पूजा": "Laxmi Puja & Deepawali",
+    "गोवर्धन पूजा": "Govardhan Puja",
+    "म्ह पूजा": "Mha Puja",
+    "भाइटीका": "Bhai Tika",
+    "छठ पर्व": "Chhath Parva",
+    "बाला चतुर्दशी": "Bala Chaturdashi",
+    "विवाह पञ्चमी": "Vivah Panchami",
+    "उधौली": "Udhauli Parva",
+    "योमरी पुन्हि": "Yomari Punhi",
+    "क्रिसमस डे": "Christmas Day",
+    "तमु ल्होसार": "Tamu Lhosar",
+    "पृथ्वी जयन्ती": "Prithvi Jayanti / National Unity Day",
+    "माघे सङ्क्रान्ति": "Maghe Sankranti / Maghi",
+    "सहिद दिवस": "Martyrs' Day",
+    "सोनाम ल्होसार": "Sonam Lhosar",
+    "सरस्वती पूजा": "Saraswati Puja / Vasant Panchami",
+    "प्रजातन्त्र दिवस": "National Democracy Day",
+    "महाशिवरात्रि": "Maha Shivaratri",
+    "ग्याल्पो ल्होसार": "Gyalpo Lhosar",
+    "महिला दिवस": "International Women's Day",
+    "फागु पूर्णिमा": "Holi (Festival of Colors)",
+    "घोडेजात्रा": "Ghode Jatra",
+    "चैते दशैं": "Chaite Dashain",
+    "राम नवमी": "Ram Navami"
+}
+
+def translate_festival_title(np_title):
+    en_parts = []
+    for np_key, en_val in COMMON_TRANSLATIONS.items():
+        if np_key in np_title and en_val not in en_parts:
+            en_parts.append(en_val)
+    if en_parts:
+        return " & ".join(en_parts)
+    return np_title
+
+def scrape_calendar_year(bs_year):
+    ctx = ssl._create_unverified_context()
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    nepali_digits = {'०':'0','१':'1','२':'2','३':'3','४':'4','५':'5','६':'6','७':'7','८':'8','९':'9'}
+    
+    all_events = []
+    print(f"Scraping live calendar data for BS {bs_year}...")
+    
+    for month in range(1, 13):
+        url = f"https://nepalicalendar.rat32.com/index_nep.php?year={bs_year}&month={month}"
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, context=ctx, timeout=20) as res:
+                html = res.read().decode('utf-8', errors='ignore')
+        except Exception as e:
+            print(f"  [!] Month {month} fetch error: {e}")
+            continue
+
+        blocks = re.findall(r'(<div id="nday">.*?)(?=<div id="nday">|</body>|</html>)', html, re.DOTALL)
+        for b in blocks:
+            nday_m = re.search(r'<div id="nday">(.*?)</div>', b, re.DOTALL)
+            fest_m = re.search(r'<div id="fest">(.*?)</div>', b, re.DOTALL)
+            dashi_m = re.search(r'<div id="dashi">(.*?)</div>', b, re.DOTALL)
+            
+            if not nday_m:
+                continue
+            
+            nday_raw = nday_m.group(1)
+            is_red = any(r in nday_raw.lower() for r in ['color="red"', "color='red'", 'color: red', 'color:red'])
+            
+            nday_clean = re.sub(r'<[^>]+>', '', nday_raw).strip()
+            day_str = "".join(nepali_digits.get(c, c) for c in nday_clean if c in nepali_digits or c.isdigit())
+            if not day_str:
+                continue
+            day_num = int(day_str)
+            
+            fest_clean = ""
+            if fest_m:
+                fest_clean = re.sub(r'<[^>]+>', ' ', fest_m.group(1)).strip()
+                fest_clean = " ".join(fest_clean.split()).replace('&nbsp;', ' ').strip()
+
+            tithi_clean = ""
+            if dashi_m:
+                tithi_clean = re.sub(r'<[^>]+>', ' ', dashi_m.group(1)).strip().replace('&nbsp;', '').strip()
+
+            # Ignore empty Saturday weekends without festival
+            if not fest_clean:
+                continue
+
+            is_public_holiday = is_red
+
+            # Categorization
+            cat = "FESTIVAL"
+            if is_public_holiday:
+                cat = "PUBLIC HOLIDAY"
+            elif any(w in fest_clean for w in ["दिवस", "Day", "जयन्ती", "एकता"]):
+                cat = "NATIONAL DAY"
+            elif any(w in fest_clean for w in ["यात्रा", "Jatra", "कार्म", "परेड"]):
+                cat = "CULTURAL EVENT"
+
+            en_title = translate_festival_title(fest_clean)
+            desc = f"{fest_clean} (Tithi: {tithi_clean})" if tithi_clean else fest_clean
+
+            all_events.append({
+                "month": month,
+                "day": day_num,
+                "isPublicHoliday": is_public_holiday,
+                "titleNP": fest_clean,
+                "titleEN": en_title,
+                "category": cat,
+                "description": desc
+            })
+        
+        time.sleep(0.3)
+        
+    print(f"  [+] Scraped {len(all_events)} events for BS {bs_year}.")
+    return all_events
+
+def get_current_bs_year():
+    today = datetime.date.today()
+    # Bikram Sambat new year begins around April 14
+    if (today.month, today.day) >= (4, 14):
+        return today.year + 57
+    else:
+        return today.year + 56
+
+def main():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir = script_dir if os.path.basename(script_dir) == 'data' else os.path.join(script_dir, 'data')
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 1. First generate all hand-curated years (high precision descriptions & translations)
+    for year, holidays in years_data.items():
+        filepath = os.path.join(output_dir, f'holidays_{year}.json')
+        data = {
+            "year": year,
+            "count": len(holidays),
+            "holidays": holidays
+        }
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print(f"Generated curated dataset: {filepath} ({len(holidays)} events)")
+
+    # 2. Check if auto-update / scraping is requested or running in CI
+    args = sys.argv[1:]
+    scrape_years = []
+    
+    if "--auto" in args or "--all" in args:
+        curr_bs = get_current_bs_year()
+        # Ensure current year and next year are present
+        for y in [curr_bs, curr_bs + 1]:
+            target_file = os.path.join(output_dir, f'holidays_{y}.json')
+            if not os.path.exists(target_file) or os.path.getsize(target_file) < 500:
+                scrape_years.append(y)
+    else:
+        for arg in args:
+            if arg.isdigit() and int(arg) > 2070:
+                scrape_years.append(int(arg))
+
+    # 3. Scrape any missing or requested years
+    for y in set(scrape_years):
+        filepath = os.path.join(output_dir, f'holidays_{y}.json')
+        if y in years_data:
+            print(f"Year {y} already curated.")
+            continue
+        events = scrape_calendar_year(y)
+        if events:
+            data = {
+                "year": y,
+                "count": len(events),
+                "holidays": events
+            }
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            print(f"Generated scraped dataset: {filepath} ({len(events)} events)")
+        else:
+            print(f"Could not scrape data for year {y} (calendar may not yet be published).")
+
+if __name__ == "__main__":
+    main()

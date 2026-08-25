@@ -22,14 +22,16 @@
 using namespace Gdiplus;
 
 // ── App Version ──────────────────────────────────────────────────────────────
-#define APP_VERSION L"3.4.2"
-#define GITHUB_REPO_API L"/repos/aayushlbef/Nepali-Date-Widget/releases/latest"
-#define GITHUB_RELEASE_URL L"https://github.com/aayushlbef/Nepali-Date-Widget/releases/tag/"
-#define WM_UPDATE_AVAILABLE (WM_USER + 2)
-#define WM_UPDATE_NOT_FOUND (WM_USER + 3)
-#define WM_UPDATE_ERROR     (WM_USER + 4)
-#define WM_HOLIDAYS_LOADED  (WM_USER + 5)
-#define WM_HOLIDAYS_FAILED  (WM_USER + 6)
+#define APP_VERSION L"3.6.0"
+#define GITHUB_REPO_API L"/repos/aayushlbef/Tithify/releases/latest"
+#define GITHUB_RELEASE_URL L"https://github.com/aayushlbef/Tithify/releases/tag/"
+#define WM_UPDATE_AVAILABLE      (WM_USER + 2)
+#define WM_UPDATE_NOT_FOUND      (WM_USER + 3)
+#define WM_UPDATE_ERROR          (WM_USER + 4)
+#define WM_HOLIDAYS_LOADED       (WM_USER + 5)
+#define WM_HOLIDAYS_FAILED       (WM_USER + 6)
+#define WM_UPDATE_DOWNLOADING    (WM_USER + 7)
+#define WM_UPDATE_INSTALL_FAILED (WM_USER + 8)
 
 // ── Global State ─────────────────────────────────────────────────────────────
 ULONG_PTR g_gdiplusToken;
@@ -107,7 +109,7 @@ bool ExtractJsonString(const char* json, const char* key, wchar_t* out, int outL
 DWORD WINAPI CheckForUpdateThread(LPVOID lpParam) {
     bool isManual = (bool)(INT_PTR)lpParam;
 
-    HINTERNET hSession = WinHttpOpen(L"NepaliDateWidget/" APP_VERSION,
+    HINTERNET hSession = WinHttpOpen(L"Tithify/" APP_VERSION,
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hSession) {
         if (isManual) PostMessage(g_hWnd, WM_UPDATE_ERROR, 0, 0);
@@ -170,6 +172,111 @@ DWORD WINAPI CheckForUpdateThread(LPVOID lpParam) {
     return 0;
 }
 
+// ── Auto-Updater: Visible Console Window ─────────────────────────────────────
+// Writes a PowerShell script to %TEMP% and opens it in a visible console
+// window so the user can watch the download progress and installation steps.
+static void LaunchUpdaterConsole(const wchar_t* version) {
+    // ── Build the temp .ps1 path ──────────────────────────────────────────────
+    wchar_t tempDir[MAX_PATH] = {0};
+    GetTempPathW(MAX_PATH, tempDir);
+    wchar_t ps1Path[MAX_PATH] = {0};
+    swprintf(ps1Path, MAX_PATH, L"%sTithify_Updater.ps1", tempDir);
+
+    // Convert version to narrow for snprintf
+    char versionA[64] = {0};
+    WideCharToMultiByte(CP_UTF8, 0, version, -1, versionA, sizeof(versionA), NULL, NULL);
+
+    // ── Build the PowerShell script content ──────────────────────────────────
+    char script[4096] = {0};
+    snprintf(script, sizeof(script),
+        "$ErrorActionPreference = 'Stop'\r\n"
+        "$version = '%s'\r\n"
+        "$url     = \"https://github.com/aayushlbef/Tithify/releases/download/$version/Tithify_Setup.exe\"\r\n"
+        "$tmp     = \"$env:TEMP\\Tithify_Update_$version.exe\"\r\n"
+        "$appExe  = \"$env:LOCALAPPDATA\\Tithify\\Tithify.exe\"\r\n"
+        "\r\n"
+        "Write-Host ''\r\n"
+        "Write-Host '  ==================================================' -ForegroundColor Cyan\r\n"
+        "Write-Host '   Tithify -- Auto Updater' -ForegroundColor Cyan\r\n"
+        "Write-Host '  ==================================================' -ForegroundColor DarkGray\r\n"
+        "Write-Host ''\r\n"
+        "Write-Host \"  New version : $version\" -ForegroundColor White\r\n"
+        "Write-Host \"  Source      : $url\" -ForegroundColor DarkGray\r\n"
+        "Write-Host ''\r\n"
+        "\r\n"
+        "# -- Step 1: Download ------------------------------------------------\r\n"
+        "Write-Host '[1/3] Downloading installer...' -ForegroundColor Cyan\r\n"
+        "Write-Host ''\r\n"
+        "try {\r\n"
+        "    if (Get-Command curl.exe -ErrorAction SilentlyContinue) {\r\n"
+        "        curl.exe -L --progress-bar -o $tmp $url\r\n"
+        "        if ($LASTEXITCODE -ne 0) { throw \"curl exited with code $LASTEXITCODE\" }\r\n"
+        "    } else {\r\n"
+        "        $ProgressPreference = 'Continue'\r\n"
+        "        Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing\r\n"
+        "    }\r\n"
+        "} catch {\r\n"
+        "    Write-Host ''\r\n"
+        "    Write-Host \"[-] Download failed: $_\" -ForegroundColor Red\r\n"
+        "    Write-Host ''\r\n"
+        "    Read-Host 'Press Enter to close'\r\n"
+        "    exit 1\r\n"
+        "}\r\n"
+        "\r\n"
+        "if (-not (Test-Path $tmp) -or (Get-Item $tmp).Length -lt 100000) {\r\n"
+        "    Write-Host '[-] Downloaded file appears corrupted. Please try again.' -ForegroundColor Red\r\n"
+        "    Read-Host 'Press Enter to close'\r\n"
+        "    exit 1\r\n"
+        "}\r\n"
+        "\r\n"
+        "Write-Host ''\r\n"
+        "Write-Host '[+] Download complete!' -ForegroundColor Green\r\n"
+        "Write-Host ''\r\n"
+        "\r\n"
+        "# -- Step 2: Install -------------------------------------------------\r\n"
+        "Write-Host '[2/3] Installing Tithify...' -ForegroundColor Cyan\r\n"
+        "Write-Host '      Running installer silently, please wait...' -ForegroundColor DarkGray\r\n"
+        "Write-Host ''\r\n"
+        "Start-Process -FilePath $tmp -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-' -Wait\r\n"
+        "Remove-Item $tmp -Force -ErrorAction SilentlyContinue\r\n"
+        "Write-Host '[+] Installation complete!' -ForegroundColor Green\r\n"
+        "Write-Host ''\r\n"
+        "\r\n"
+        "# -- Step 3: Relaunch ------------------------------------------------\r\n"
+        "Write-Host '[3/3] Launching Tithify...' -ForegroundColor Cyan\r\n"
+        "Start-Sleep -Seconds 1\r\n"
+        "if (Test-Path $appExe) {\r\n"
+        "    Start-Process -FilePath $appExe\r\n"
+        "    Write-Host '[+] Widget launched successfully.' -ForegroundColor Green\r\n"
+        "} else {\r\n"
+        "    Write-Host \"[!] Could not find widget at: $appExe\" -ForegroundColor Yellow\r\n"
+        "}\r\n"
+        "\r\n"
+        "Write-Host ''\r\n"
+        "Write-Host '  Update complete! This window will close in 5 seconds.' -ForegroundColor Cyan\r\n"
+        "Write-Host '  ==================================================' -ForegroundColor DarkGray\r\n"
+        "Start-Sleep -Seconds 5\r\n",
+        versionA
+    );
+
+    // ── Write the script file to disk ────────────────────────────────────────
+    HANDLE hFile = CreateFileW(ps1Path, GENERIC_WRITE, 0, NULL,
+        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) return;
+    DWORD written = 0;
+    WriteFile(hFile, script, (DWORD)strlen(script), &written, NULL);
+    CloseHandle(hFile);
+
+    // ── Launch in a visible PowerShell console window ─────────────────────────
+    wchar_t args[MAX_PATH + 128] = {0};
+    swprintf(args, MAX_PATH + 128,
+        L"-NoProfile -ExecutionPolicy Bypass -File \"%ls\"",
+        ps1Path);
+
+    ShellExecuteW(NULL, L"open", L"powershell.exe", args, NULL, SW_NORMAL);
+}
+
+
 // ── Fullscreen App Detection ─────────────────────────────────────────────────
 // Returns true if the foreground window completely covers its monitor
 // (e.g. a movie player, game, or browser in fullscreen mode).
@@ -207,13 +314,24 @@ std::wstring GetConfigPath() {
     if (pos != std::wstring::npos) {
         ws = ws.substr(0, pos);
     }
-    return ws + L"\\widget.cfg";
+    return ws + L"\\tithify.cfg";
 }
 
 void LoadConfig() {
     std::wstring path = GetConfigPath();
     std::string npath(path.begin(), path.end());
     FILE* file = fopen(npath.c_str(), "r");
+    if (!file) {
+        // Fallback for legacy widget.cfg
+        wchar_t exePath[MAX_PATH];
+        GetModuleFileNameW(NULL, exePath, MAX_PATH);
+        std::wstring ws(exePath);
+        size_t pos = ws.find_last_of(L"\\/");
+        if (pos != std::wstring::npos) ws = ws.substr(0, pos);
+        std::wstring legacyPath = ws + L"\\widget.cfg";
+        std::string nLegacy(legacyPath.begin(), legacyPath.end());
+        file = fopen(nLegacy.c_str(), "r");
+    }
     if (file) {
         int x, y, setup, showDay = 1;
         int n = fscanf(file, "%d,%d,%d,%d", &x, &y, &setup, &showDay);
@@ -239,7 +357,7 @@ void SaveConfig() {
 
 // ── Startup Registry Helpers ────────────────────────────────────────────────
 static const wchar_t* STARTUP_REG_KEY = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-static const wchar_t* STARTUP_REG_VALUE = L"NepaliDateWidget";
+static const wchar_t* STARTUP_REG_VALUE = L"Tithify";
 
 bool IsStartupEnabled() {
     HKEY hKey;
@@ -359,7 +477,7 @@ std::wstring Utf8ToWide(const std::string& str) {
 std::wstring GetHolidayCachePath(int bsYear) {
     wchar_t appDataPath[MAX_PATH];
     if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, appDataPath))) {
-        std::wstring dir = std::wstring(appDataPath) + L"\\NepaliDateWidget";
+        std::wstring dir = std::wstring(appDataPath) + L"\\Tithify";
         CreateDirectoryW(dir.c_str(), NULL);
         return dir + L"\\holidays_" + std::to_wstring(bsYear) + L".dat";
     }
@@ -562,7 +680,7 @@ bool ParseHolidaysJson(const std::string& json, int expectedYear, std::vector<Ne
 }
 
 bool HttpDownloadString(const wchar_t* host, const wchar_t* path, std::string& outBody) {
-    HINTERNET hSession = WinHttpOpen(L"NepaliDateWidget/" APP_VERSION,
+    HINTERNET hSession = WinHttpOpen(L"Tithify/" APP_VERSION,
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hSession) return false;
 
@@ -624,14 +742,14 @@ DWORD WINAPI FetchHolidaysThread(LPVOID lpParam) {
     bool downloaded = false;
 
     // 1. Try primary GitHub raw URL
-    std::wstring path1 = L"/aayushlbef/Nepali-Date-Widget/main/data/holidays_" + std::to_wstring(bsYear) + L".json";
+    std::wstring path1 = L"/aayushlbef/Tithify/main/data/holidays_" + std::to_wstring(bsYear) + L".json";
     if (HttpDownloadString(L"raw.githubusercontent.com", path1.c_str(), jsonBody)) {
         downloaded = true;
     }
 
     // 2. Try secondary jsDelivr CDN
     if (!downloaded) {
-        std::wstring path2 = L"/gh/aayushlbef/Nepali-Date-Widget@main/data/holidays_" + std::to_wstring(bsYear) + L".json";
+        std::wstring path2 = L"/gh/aayushlbef/Tithify@main/data/holidays_" + std::to_wstring(bsYear) + L".json";
         if (HttpDownloadString(L"cdn.jsdelivr.net", path2.c_str(), jsonBody)) {
             downloaded = true;
         }
@@ -1797,7 +1915,7 @@ void AddTrayIcon(HWND hWnd) {
     g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     g_nid.uCallbackMessage = WM_TRAYICON;
     g_nid.hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(1)); // Custom embedded logo
-    wcscpy_s(g_nid.szTip, L"Nepali Date Widget");
+    wcscpy_s(g_nid.szTip, L"Tithify \u2014 Nepali Date Widget");
     Shell_NotifyIconW(NIM_ADD, &g_nid);
 }
 
@@ -1847,7 +1965,7 @@ void ShowContextMenu(HWND hWnd, POINT pt) {
         SaveConfig();
         RenderWidget(hWnd);
     } else if (cmd == 6) {
-        ShellExecuteW(NULL, L"open", L"https://aayushlbef.github.io/Nepali-Date-Widget/#sponsor", NULL, NULL, SW_SHOWNORMAL);
+        ShellExecuteW(NULL, L"open", L"https://aayushlbef.github.io/Tithify/#sponsor", NULL, NULL, SW_SHOWNORMAL);
     } else if (cmd == 7) {
         ToggleCalendar(hWnd);
     }
@@ -1965,25 +2083,35 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
     // ── Update notification ──────────────────────────────────────────────────
     case WM_UPDATE_AVAILABLE: {
-        wchar_t msg[256];
-        swprintf(msg, 256, L"A new version (%s) is available!\n\nWould you like to download it?", g_latestVersion);
-        if (MessageBoxW(hWnd, msg, L"Nepali Date Widget \u2014 Update Available",
-                MB_YESNO | MB_ICONINFORMATION) == IDYES) {
-            std::wstring url = GITHUB_RELEASE_URL + std::wstring(g_latestVersion);
-            ShellExecuteW(NULL, L"open", url.c_str(), NULL, NULL, SW_SHOWNORMAL);
+        wchar_t msg[320];
+        swprintf(msg, 320,
+            L"Version %ls is available!\n\n"
+            L"Click Yes to open a terminal window showing the\n"
+            L"download and installation progress.\n\n"
+            L"The widget will close and restart automatically.",
+            g_latestVersion);
+        int choice = MessageBoxW(hWnd, msg,
+            L"Tithify \u2014 Update Available",
+            MB_YESNO | MB_ICONINFORMATION);
+        if (choice == IDYES) {
+            // Open a visible PowerShell console that handles the full update
+            LaunchUpdaterConsole(g_latestVersion);
+            // Close the widget so the installer can overwrite Tithify.exe
+            PostMessage(g_hWnd, WM_CLOSE, 0, 0);
         }
         break;
     }
-    
+
     case WM_UPDATE_NOT_FOUND:
-        MessageBoxW(hWnd, L"You are already running the latest version.", 
-                    L"Nepali Date Widget \u2014 Up to Date", MB_OK | MB_ICONINFORMATION);
+        MessageBoxW(hWnd, L"You are already running the latest version.",
+                    L"Tithify \u2014 Up to Date", MB_OK | MB_ICONINFORMATION);
         break;
 
     case WM_UPDATE_ERROR:
-        MessageBoxW(hWnd, L"Failed to check for updates. Please check your internet connection.", 
-                    L"Nepali Date Widget \u2014 Error", MB_OK | MB_ICONERROR);
+        MessageBoxW(hWnd, L"Failed to check for updates. Please check your internet connection.",
+                    L"Tithify \u2014 Error", MB_OK | MB_ICONERROR);
         break;
+
 
     case WM_HOLIDAYS_LOADED:
         RenderWidget(hWnd);
@@ -2017,9 +2145,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
 // ── Application Entrypoint ───────────────────────────────────────────────────
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
-    HANDLE hMutex = CreateMutex(NULL, TRUE, L"NepaliDateWidget_Mutex_Unique_App_ID");
+    HANDLE hMutex = CreateMutex(NULL, TRUE, L"Tithify_Mutex_Unique_App_ID");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        MessageBox(NULL, L"The application is already running.", L"Nepali Date Widget", MB_OK | MB_ICONINFORMATION);
+        MessageBox(NULL, L"The application is already running.", L"Tithify", MB_OK | MB_ICONINFORMATION);
         CloseHandle(hMutex);
         return 0;
     }

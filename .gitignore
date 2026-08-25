@@ -1,4 +1,6 @@
-﻿widget.cfg
+widget.cfg
+tithify.cfg
+*.cfg
 graphify-out/
 *.log
 scratch/

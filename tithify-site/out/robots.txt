@@ -1,0 +1,4 @@
+User-Agent: *
+Allow: /
+
+Sitemap: https://aayushlbef.github.io/Nepali-Date-Widget/sitemap.xml
