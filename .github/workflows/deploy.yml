@@ -20,7 +20,7 @@ jobs:
     defaults:
       run:
         # The Next.js site lives in this subfolder, not the repo root.
-        working-directory: ./nepali-widget-site
+        working-directory: ./tithify-site
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: ./nepali-widget-site/package-lock.json
+          cache-dependency-path: ./tithify-site/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -41,7 +41,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./nepali-widget-site/out
+          path: ./tithify-site/out
 
   deploy:
     needs: build
