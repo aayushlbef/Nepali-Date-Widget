@@ -22,7 +22,7 @@
 using namespace Gdiplus;
 
 // ── App Version ──────────────────────────────────────────────────────────────
-#define APP_VERSION L"3.6.0"
+#define APP_VERSION L"3.6.1"
 #define GITHUB_REPO_API L"/repos/aayushlbef/Tithify/releases/latest"
 #define GITHUB_RELEASE_URL L"https://github.com/aayushlbef/Tithify/releases/tag/"
 #define WM_UPDATE_AVAILABLE      (WM_USER + 2)
@@ -49,6 +49,9 @@ bool g_showDay = true;
 float g_dpiScale = 1.0f;
 
 bool g_hiddenForFullscreen = false;
+bool g_hiddenForTaskbar = false;
+int g_currentShiftX = 0;
+int g_currentShiftY = 0;
 
 // ── Theme Detection ──────────────────────────────────────────────────────────
 bool g_isLightTheme = false;   // true = Windows light theme, false = dark
@@ -305,6 +308,87 @@ bool IsFullscreenAppRunning() {
             rcWnd.right  >= mi.rcMonitor.right &&
             rcWnd.bottom >= mi.rcMonitor.bottom);
 }
+
+// ── Auto-Hide Taskbar Sync & Animation State ─────────────────────────────────
+struct TaskbarSyncState {
+    bool isAutoHide = false;
+    bool isCompletelyHidden = false;
+    int shiftX = 0;
+    int shiftY = 0;
+};
+
+TaskbarSyncState GetTaskbarSyncState() {
+    TaskbarSyncState state;
+    APPBARDATA abd = { sizeof(APPBARDATA) };
+    UINT abState = (UINT)SHAppBarMessage(ABM_GETSTATE, &abd);
+    state.isAutoHide = (abState & ABS_AUTOHIDE) != 0;
+    if (!state.isAutoHide) return state;
+
+    HWND hTaskbar = FindWindow(L"Shell_TrayWnd", NULL);
+    if (!hTaskbar) return state;
+
+    RECT rcTaskbar;
+    if (!GetWindowRect(hTaskbar, &rcTaskbar)) return state;
+
+    HMONITOR hMon = MonitorFromWindow(hTaskbar, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof(mi) };
+    GetMonitorInfo(hMon, &mi);
+
+    static int s_expandedHeight = 48;
+    static int s_expandedWidth = 48;
+
+    int tbHeight = rcTaskbar.bottom - rcTaskbar.top;
+    int tbWidth = rcTaskbar.right - rcTaskbar.left;
+
+    if (tbHeight > 10) s_expandedHeight = tbHeight;
+    if (tbWidth > 10) s_expandedWidth = tbWidth;
+
+    // Detect Taskbar Orientation (Bottom, Top, Left, Right) relative to monitor bounds
+    // Bottom Taskbar (default):
+    if (rcTaskbar.bottom >= mi.rcMonitor.bottom - 10) {
+        int normalTop = mi.rcMonitor.bottom - s_expandedHeight;
+        state.shiftY = rcTaskbar.top - normalTop;
+        if (state.shiftY < 0) state.shiftY = 0;
+
+        if (tbHeight <= 4 || rcTaskbar.top >= mi.rcMonitor.bottom - 4) {
+            state.isCompletelyHidden = true;
+        }
+    }
+    // Top Taskbar:
+    else if (rcTaskbar.top <= mi.rcMonitor.top + 10) {
+        int normalBottom = mi.rcMonitor.top + s_expandedHeight;
+        state.shiftY = rcTaskbar.bottom - normalBottom;
+        if (state.shiftY > 0) state.shiftY = 0;
+
+        if (tbHeight <= 4 || rcTaskbar.bottom <= mi.rcMonitor.top + 4) {
+            state.isCompletelyHidden = true;
+        }
+    }
+    // Right Taskbar:
+    else if (rcTaskbar.right >= mi.rcMonitor.right - 10) {
+        int normalLeft = mi.rcMonitor.right - s_expandedWidth;
+        state.shiftX = rcTaskbar.left - normalLeft;
+        if (state.shiftX < 0) state.shiftX = 0;
+
+        if (tbWidth <= 4 || rcTaskbar.left >= mi.rcMonitor.right - 4) {
+            state.isCompletelyHidden = true;
+        }
+    }
+    // Left Taskbar:
+    else if (rcTaskbar.left <= mi.rcMonitor.left + 10) {
+        int normalRight = mi.rcMonitor.left + s_expandedWidth;
+        state.shiftX = rcTaskbar.right - normalRight;
+        if (state.shiftX > 0) state.shiftX = 0;
+
+        if (tbWidth <= 4 || rcTaskbar.right <= mi.rcMonitor.left + 4) {
+            state.isCompletelyHidden = true;
+        }
+    }
+
+    return state;
+}
+
+
 
 std::wstring GetConfigPath() {
     wchar_t path[MAX_PATH];
@@ -1080,11 +1164,24 @@ enum CalendarButtonId {
     BTN_RETRY_FETCH = 107
 };
 
+enum CalendarAnimState {
+    CAL_ANIM_CLOSED = 0,
+    CAL_ANIM_OPENING,
+    CAL_ANIM_OPEN,
+    CAL_ANIM_CLOSING
+};
+
+CalendarAnimState g_calAnimState = CAL_ANIM_CLOSED;
+DWORD g_calAnimStartTime = 0;
+const DWORD CAL_ANIM_OPEN_MS = 180;
+const DWORD CAL_ANIM_CLOSE_MS = 140;
+
 void HideCalendar();
+void HideCalendarImmediate();
 void ShowCalendar(HWND hWidgetWnd);
 void ToggleCalendar(HWND hWidgetWnd);
 
-void RenderCalendar(HWND hWnd) {
+void RenderCalendar(HWND hWnd, BYTE alpha = 255, int overrideX = -1, int overrideY = -1) {
     if (!hWnd) return;
 
     // Enforce calendar strictly to current BS year
@@ -1131,14 +1228,17 @@ void RenderCalendar(HWND hWnd) {
     int rawW = (int)((hasEvent ? (baseW + arrowW + flyoutW + 12.0f) : baseW) * s);
     int rawH = (int)(baseH * s);
 
-    int screenX = g_calBaseX;
+    int baseX = (overrideX != -1) ? overrideX : g_calBaseX;
+    int baseY = (overrideY != -1) ? overrideY : g_calBaseY;
+
+    int screenX = baseX;
     float calCardOffsetX = 0.0f;
     if (hasEvent && isFlyoutOnLeft) {
-        screenX = g_calBaseX - (int)flyoutTotalW;
+        screenX = baseX - (int)flyoutTotalW;
         if (screenX < mi.rcWork.left) screenX = mi.rcWork.left;
-        calCardOffsetX = (float)(g_calBaseX - screenX);
+        calCardOffsetX = (float)(baseX - screenX);
     }
-    int screenY = g_calBaseY;
+    int screenY = baseY;
 
     HDC hdcScreen = GetDC(NULL);
     HDC hdcMem = CreateCompatibleDC(hdcScreen);
@@ -1540,7 +1640,7 @@ void RenderCalendar(HWND hWnd) {
     POINT ptDst = { screenX, screenY };
     SIZE sizeDst = { rawW, rawH };
     POINT ptSrc = { 0, 0 };
-    BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+    BLENDFUNCTION blend = { AC_SRC_OVER, 0, alpha, AC_SRC_ALPHA };
 
     UpdateLayeredWindow(hWnd, hdcScreen, &ptDst, &sizeDst, hdcMem, &ptSrc, 0, &blend, ULW_ALPHA);
 
@@ -1689,6 +1789,41 @@ LRESULT CALLBACK CalendarWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPar
         else if (wParam == VK_DOWN) { int maxD = GetBSDaysInMonth(g_calYear, g_calMonth); if (g_calSelectedDay + 7 <= maxD) g_calSelectedDay += 7; RenderCalendar(hWnd); }
         break;
 
+    case WM_TIMER:
+        if (wParam == 100) {
+            DWORD elapsed = GetTickCount() - g_calAnimStartTime;
+            float scale = g_dpiScale;
+
+            if (g_calAnimState == CAL_ANIM_OPENING) {
+                if (elapsed >= CAL_ANIM_OPEN_MS) {
+                    g_calAnimState = CAL_ANIM_OPEN;
+                    KillTimer(hWnd, 100);
+                    RenderCalendar(hWnd, 255, g_calBaseX, g_calBaseY);
+                } else {
+                    float progress = (float)elapsed / (float)CAL_ANIM_OPEN_MS;
+                    float ease = 1.0f - powf(1.0f - progress, 3.0f); // Cubic Ease-Out
+                    BYTE alpha = (BYTE)(ease * 255.0f);
+                    int offset = (int)((1.0f - ease) * (18.0f * scale));
+                    int animY = g_calBaseY + offset;
+                    RenderCalendar(hWnd, alpha, g_calBaseX, animY);
+                }
+            } else if (g_calAnimState == CAL_ANIM_CLOSING) {
+                if (elapsed >= CAL_ANIM_CLOSE_MS) {
+                    g_calAnimState = CAL_ANIM_CLOSED;
+                    KillTimer(hWnd, 100);
+                    ShowWindow(hWnd, SW_HIDE);
+                } else {
+                    float progress = (float)elapsed / (float)CAL_ANIM_CLOSE_MS;
+                    float ease = progress * progress * progress; // Cubic Ease-In
+                    BYTE alpha = (BYTE)((1.0f - ease) * 255.0f);
+                    int offset = (int)(ease * (14.0f * scale));
+                    int animY = g_calBaseY + offset;
+                    RenderCalendar(hWnd, alpha, g_calBaseX, animY);
+                }
+            }
+        }
+        break;
+
     case WM_DESTROY:
         g_hCalWnd = NULL;
         break;
@@ -1699,10 +1834,26 @@ LRESULT CALLBACK CalendarWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPar
     return 0;
 }
 
-void HideCalendar() {
-    if (!g_isCalendarOpen) return;
+void HideCalendarImmediate() {
     g_isCalendarOpen = false;
-    if (g_hCalWnd) ShowWindow(g_hCalWnd, SW_HIDE);
+    g_calAnimState = CAL_ANIM_CLOSED;
+    if (g_hCalWnd) {
+        KillTimer(g_hCalWnd, 100);
+        ShowWindow(g_hCalWnd, SW_HIDE);
+    }
+}
+
+void HideCalendar() {
+    if (!g_isCalendarOpen || g_calAnimState == CAL_ANIM_CLOSED) return;
+    if (g_calAnimState == CAL_ANIM_CLOSING) return;
+
+    g_calAnimState = CAL_ANIM_CLOSING;
+    g_calAnimStartTime = GetTickCount();
+    g_isCalendarOpen = false;
+
+    if (g_hCalWnd) {
+        SetTimer(g_hCalWnd, 100, 16, NULL);
+    }
 }
 
 void ShowCalendar(HWND hWidgetWnd) {
@@ -1751,11 +1902,18 @@ void ShowCalendar(HWND hWidgetWnd) {
 
     g_calBaseX = x;
     g_calBaseY = y;
-
-    RenderCalendar(g_hCalWnd);
-    ShowWindow(g_hCalWnd, SW_SHOW);
-    SetForegroundWindow(g_hCalWnd);
     g_isCalendarOpen = true;
+
+    // Start 60 FPS smooth opening slide & fade animation
+    g_calAnimState = CAL_ANIM_OPENING;
+    g_calAnimStartTime = GetTickCount();
+
+    int startY = g_calBaseY + (int)(18 * g_dpiScale);
+    RenderCalendar(g_hCalWnd, 0, g_calBaseX, startY);
+    ShowWindow(g_hCalWnd, SW_SHOWNOACTIVATE);
+    SetForegroundWindow(g_hCalWnd);
+
+    SetTimer(g_hCalWnd, 100, 16, NULL);
 }
 
 void ToggleCalendar(HWND hWidgetWnd) {
@@ -1891,7 +2049,7 @@ void RenderWidget(HWND hWnd) {
     graphics.DrawString(dateStr.c_str(), -1, &font, dateRect, &formatNear, &textBrush);
 
     // Apply per-pixel alpha channel to OS Window
-    POINT ptDst = { g_xPos, g_yPos };
+    POINT ptDst = { g_xPos + g_currentShiftX, g_yPos + g_currentShiftY };
     SIZE sizeDst = { rawWidth, rawHeight };
     POINT ptSrc = { 0, 0 };
     BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
@@ -1977,7 +2135,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_CREATE:
         AddTrayIcon(hWnd);
         SetTimer(hWnd, 1, 1000, NULL);   // Render timer
-        SetTimer(hWnd, 2, 250, NULL);    // Z-order enforcement timer
+        SetTimer(hWnd, 2, 16, NULL);     // High-precision (60 FPS) animation & taskbar sync ticker
         break;
 
     case WM_TIMER:
@@ -1994,21 +2152,73 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
             }
         } else if (wParam == 2) {
-            // ── Fullscreen detection: hide during movies/games ────────
+            TaskbarSyncState syncState = GetTaskbarSyncState();
             bool fullscreen = IsFullscreenAppRunning();
-            if (fullscreen && !g_hiddenForFullscreen) {
+
+            // Fullscreen hide rule: hide during fullscreen apps UNLESS auto-hide taskbar is revealed by hovering
+            bool shouldHideFullscreen = fullscreen && (syncState.isAutoHide ? syncState.isCompletelyHidden : true);
+
+            if (shouldHideFullscreen && !g_hiddenForFullscreen) {
                 g_hiddenForFullscreen = true;
-                if (g_isCalendarOpen) HideCalendar();
+                if (g_isCalendarOpen) HideCalendarImmediate();
                 ShowWindow(hWnd, SW_HIDE);
-            } else if (!fullscreen && g_hiddenForFullscreen) {
+            } else if (!shouldHideFullscreen && g_hiddenForFullscreen) {
                 g_hiddenForFullscreen = false;
-                ShowWindow(hWnd, SW_SHOWNOACTIVATE);
-                RenderWidget(hWnd);
+                if (!g_hiddenForTaskbar) {
+                    ShowWindow(hWnd, SW_SHOWNOACTIVATE);
+                    RenderWidget(hWnd);
+                }
             }
-            // Re-assert TOPMOST (only when visible and menu is closed)
-            if (!g_hiddenForFullscreen && !g_isMenuOpen) {
-                SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
-                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+
+            // ── Pixel-Accurate Taskbar Auto-Hide Animation Sync ────────
+            if (!g_setupMode && syncState.isAutoHide) {
+                if (syncState.isCompletelyHidden) {
+                    if (!g_hiddenForTaskbar) {
+                        g_hiddenForTaskbar = true;
+                        if (g_isCalendarOpen) HideCalendarImmediate();
+                        ShowWindow(hWnd, SW_HIDE);
+                    }
+                } else {
+                    bool wasHidden = g_hiddenForTaskbar;
+                    g_hiddenForTaskbar = false;
+
+                    bool shiftChanged = (g_currentShiftX != syncState.shiftX || g_currentShiftY != syncState.shiftY);
+                    g_currentShiftX = syncState.shiftX;
+                    g_currentShiftY = syncState.shiftY;
+
+                    if ((wasHidden || !IsWindowVisible(hWnd)) && !shouldHideFullscreen) {
+                        ShowWindow(hWnd, SW_SHOWNOACTIVATE);
+                        RenderWidget(hWnd);
+                    } else if (shiftChanged && !shouldHideFullscreen && IsWindowVisible(hWnd)) {
+                        SetWindowPos(hWnd, NULL, g_xPos + g_currentShiftX, g_yPos + g_currentShiftY, 0, 0,
+                                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+                    }
+                }
+            } else {
+                if (g_currentShiftX != 0 || g_currentShiftY != 0) {
+                    g_currentShiftX = 0;
+                    g_currentShiftY = 0;
+                    if (!shouldHideFullscreen && IsWindowVisible(hWnd)) {
+                        SetWindowPos(hWnd, NULL, g_xPos, g_yPos, 0, 0,
+                                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+                    }
+                }
+                if (g_hiddenForTaskbar) {
+                    g_hiddenForTaskbar = false;
+                    if (!shouldHideFullscreen) {
+                        ShowWindow(hWnd, SW_SHOWNOACTIVATE);
+                        RenderWidget(hWnd);
+                    }
+                }
+            }
+
+            // ── Re-assert TOPMOST ONLY if another window has been placed above us ──
+            if (!shouldHideFullscreen && !g_hiddenForTaskbar && !g_isMenuOpen) {
+                HWND hPrev = GetWindow(hWnd, GW_HWNDPREV);
+                if (hPrev != NULL && hPrev != g_hCalWnd) {
+                    SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
+                                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+                }
             }
         }
         break;
