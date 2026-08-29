@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -38,5 +40,5 @@ jobs:
             echo "No changes in holiday datasets."
           else
             git commit -m "Auto-update Nepali calendar holidays and events data [skip ci]"
-            git push origin main
+            git push origin HEAD:main
           fi
