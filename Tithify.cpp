@@ -22,7 +22,7 @@
 using namespace Gdiplus;
 
 // ── App Version ──────────────────────────────────────────────────────────────
-#define APP_VERSION L"3.6.1"
+#define APP_VERSION L"3.6.2"
 #define GITHUB_REPO_API L"/repos/aayushlbef/Tithify/releases/latest"
 #define GITHUB_RELEASE_URL L"https://github.com/aayushlbef/Tithify/releases/tag/"
 #define WM_UPDATE_AVAILABLE      (WM_USER + 2)
@@ -2212,10 +2212,25 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
             }
 
-            // ── Re-assert TOPMOST ONLY if another window has been placed above us ──
-            if (!shouldHideFullscreen && !g_hiddenForTaskbar && !g_isMenuOpen) {
-                HWND hPrev = GetWindow(hWnd, GW_HWNDPREV);
-                if (hPrev != NULL && hPrev != g_hCalWnd) {
+            // ── 3. Re-assert TOPMOST safely without fighting Lenovo Vantage / Custom Toolbars ──
+            static DWORD s_lastZCheckTime = 0;
+            DWORD nowTicks = GetTickCount();
+            if (!shouldHideFullscreen && !g_hiddenForTaskbar && !g_isMenuOpen && (nowTicks - s_lastZCheckTime >= 3000)) {
+                s_lastZCheckTime = nowTicks;
+
+                // Check if Windows Explorer's Taskbar (Shell_TrayWnd) is specifically above us
+                HWND hTaskbar = FindWindow(L"Shell_TrayWnd", NULL);
+                bool isTaskbarAbove = false;
+                if (hTaskbar) {
+                    for (HWND h = GetWindow(hWnd, GW_HWNDPREV); h != NULL; h = GetWindow(h, GW_HWNDPREV)) {
+                        if (h == hTaskbar) {
+                            isTaskbarAbove = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (isTaskbarAbove) {
                     SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
                                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
                 }

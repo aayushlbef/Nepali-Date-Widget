@@ -89,7 +89,7 @@ winget install Aayush.Tithify
 > **Browser & Windows SmartScreen Warnings**
 > Because this is a free open-source project without a paid EV code-signing certificate, your web browser or Windows SmartScreen might initially show a warning for new releases. You can safely bypass it by clicking **Keep -> Keep anyway** in your browser, and **More Info -> Run Anyway** in Windows.
 
-1. Download **`Tithify_v3.6.1.zip`** or `Tithify_Setup.exe` from the [Latest Release](https://github.com/aayushlbef/Tithify/releases/latest).
+1. Download **`Tithify_v3.6.2.zip`** or `Tithify_Setup.exe` from the [Latest Release](https://github.com/aayushlbef/Tithify/releases/latest).
 2. Run `Tithify_Setup.exe` to install.
 
 ---

@@ -2,7 +2,7 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
 
 PackageIdentifier: Aayush.Tithify
-PackageVersion: 3.6.1
+PackageVersion: 3.6.2
 InstallerType: inno
 Scope: user
 InstallerSwitches:
@@ -10,7 +10,7 @@ InstallerSwitches:
   SilentWithProgress: /SILENT /SUPPRESSMSGBOXES /NORESTART /SP-
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/aayushlbef/Tithify/releases/download/v3.6.1/Tithify_Setup.exe
-    InstallerSha256: 627DC3A34ACCE8CE651E73C339E5D2C3C7CE6476EC064163DC70FFB9E800B257
+    InstallerUrl: https://github.com/aayushlbef/Tithify/releases/download/v3.6.2/Tithify_Setup.exe
+    InstallerSha256: F91E7706EB589A5C0125DC58A7872910698FF51127A96FEA0205B06F7D22DA67
 ManifestType: installer
 ManifestVersion: 1.6.0
