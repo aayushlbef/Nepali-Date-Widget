@@ -1,6 +1,6 @@
 {
   "year": 2083,
-  "count": 47,
+  "count": 46,
   "holidays": [
     {
       "month": 1,
@@ -415,15 +415,6 @@
       "titleEN": "Ghode Jatra (Horse Festival)",
       "category": "CULTURAL EVENT",
       "description": "Spectacular annual horse parades and equestrian stunts in Kathmandu valley."
-    },
-    {
-      "month": 12,
-      "day": 31,
-      "isPublicHoliday": false,
-      "titleNP": "चैते दशैं",
-      "titleEN": "Chaite Dashain",
-      "category": "FESTIVAL",
-      "description": "Spring festivities worshipping Goddess Durga Bhavani."
     }
   ]
 }
