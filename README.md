@@ -1,6 +1,18 @@
 # Tithify — Nepali Date Windows Taskbar Widget
 
-A lightweight, native C++ desktop widget for Windows that beautifully displays the current Nepali (Bikram Sambat) date, specially designed to be viewed directly above your taskbar.
+<p align="center">
+  <img src="docs/logo.png" alt="Tithify Logo" width="120" />
+</p>
+
+<p align="center">
+  A lightweight, native C++ desktop widget for Windows that beautifully displays the current Nepali (Bikram Sambat) date, specially designed to be viewed directly above your taskbar.
+</p>
+
+<p align="center">
+  <img src="docs/desktop-widget-showcase.png" alt="Tithify Desktop Widget Showcase" width="750" />
+</p>
+
+---
 
 ## 🚀 Features
 
@@ -13,9 +25,15 @@ A lightweight, native C++ desktop widget for Windows that beautifully displays t
 - **Professional Installer:** Comes with a standard Windows Installer (`Setup.exe`) for easy installation, Start Menu shortcuts, and clean uninstalls (no Admin privileges required).
 - **System Tray Icon:** Accessible from the system tray with a right-click context menu for quick access to all settings.
 
+---
+
 ## 📅 Interactive Calendar Popup
 
 Click the widget to open a full **Bikram Sambat Calendar** popup — powered by a native GDI+ rendering engine.
+
+<p align="center">
+  <img src="docs/calendar-window.png" alt="Bikram Sambat Interactive Calendar Popup" width="750" />
+</p>
 
 - **Month Navigation:** Use the `‹` / `›` buttons or scroll the **mouse wheel** to navigate between months of the current BS year.
 - **Dual Date Display:** Every calendar cell shows both the **BS day** (large) and the corresponding **AD date** (small, bottom-right).
@@ -24,6 +42,8 @@ Click the widget to open a full **Bikram Sambat Calendar** popup — powered by 
 - **Bilingual Header:** Month name displayed in both English and Devanagari script, e.g., `Baisakh 2082 • बैशाख २०८२`.
 - **Gregorian Range:** Shows the full Gregorian (AD) date range for the displayed BS month.
 - **Public Holiday & Saturday Indicators:** Saturdays and public holidays are highlighted in red; festival/event days show a colored dot indicator.
+
+---
 
 ## 🎉 Holiday & Festival Engine
 
@@ -38,6 +58,23 @@ The calendar automatically fetches and displays Nepali public holidays and cultu
 - **Offline Mode:** If no internet is available, the calendar shows an **⚠ OFFLINE** notice with a **↻ Retry** button to re-attempt fetching when back online.
 - **BS Year Coverage:** Full calendar data from **BS 1975 to 2100**.
 
+---
+
+## 💖 Support & Donate
+
+Tithify is 100% free and open-source. If you find it helpful for your daily workflow, consider supporting its maintenance and ongoing development!
+
+<div align="center">
+
+| <img src="docs/logos/esewa.png" alt="eSewa Logo" height="36" /> | <img src="docs/logos/Khalti.png" alt="Khalti Logo" height="36" /> |
+| :---: | :---: |
+| <img src="docs/OR's/eSewa%20QR.jpg" alt="eSewa QR Code" width="220" /> | <img src="docs/OR's/Khalti%20QR.png" alt="Khalti QR Code" width="220" /> |
+| **eSewa Mobile Wallet** | **Khalti Digital Wallet** |
+
+</div>
+
+---
+
 ## ⚡ Ultra-Efficient Resource Management
 
 This widget is engineered from the ground up to consume absolutely minimal system resources (essentially 0.00% CPU usage and a tiny RAM footprint).
@@ -45,11 +82,13 @@ This widget is engineered from the ground up to consume absolutely minimal syste
 **How it achieves this:**
 Instead of constantly running complex date conversion algorithms, the widget uses an ultra-efficient caching technique:
 1. Every second, it asks the Windows OS for the current Gregorian (AD) Date — a nearly zero-cost operation.
-2. It checks if the Day, Month, or Year has changed since the last frame.
+2. It checks if the Day, Month, Year has changed since the last frame.
 3. Only if the day has physically changed (which happens exactly once a day at 12:00 AM) will the widget perform the Bikram Sambat conversion logic and re-render the text.
 4. For the other 86,399 seconds of the day, it skips all math entirely and just paints the cached text to the screen!
 
 This ensures you have a perfectly accurate, real-time widget that doesn't drain your laptop's battery or steal CPU cycles from your games.
+
+---
 
 ## 🛠️ How It Works
 
@@ -59,6 +98,8 @@ The widget uses the native Windows Win32 API and GDI+ to render directly to your
 - **Native BS Conversion:** The entire Bikram Sambat (1975–2100) calendar mapping is embedded directly into the C++ binary. This guarantees offline date display out-of-the-box.
 - **WinHTTP API:** Update checks and holiday fetching are performed safely on detached background threads using native Windows networking to ensure the UI never stutters.
 - **Live Theme Sync:** Listens for `WM_SETTINGCHANGE` (ImmersiveColorSet) to detect and apply Windows theme changes in real-time.
+
+---
 
 ## 🏃 Installation
 
@@ -100,7 +141,6 @@ winget install Aayush.Tithify
 2. **Locking:** Right-click again and select **"Lock Position"** to make it click-through and seamless!
 3. **Open Calendar:** **Left-click** the widget at any time to open the **interactive Bikram Sambat Calendar**.
 4. **Settings:** Right-click to configure **Run at Startup**, toggle **Show Day of Week**, switch themes, or check for updates.
-
 
 ---
 
