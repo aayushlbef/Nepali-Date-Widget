@@ -26,6 +26,8 @@ const DONATE_METHODS = [
 export default function Donate() {
   return (
     <section id="donate" className="relative bg-gradient-to-b from-white via-[#f4f8ff] to-[#eaf4ff] py-28 md:py-36 overflow-hidden">
+      {/* Anchor for legacy or context menu links pointing to #sponsor */}
+      <div id="sponsor" className="absolute top-0 left-0" />
       <div className="max-w-5xl mx-auto px-6 md:px-10">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
