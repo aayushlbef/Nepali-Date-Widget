@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/logo.png" alt="Tithify Logo" width="120" />
+  <img src="tithify-site/public/logo.png" alt="Tithify Logo" width="120" />
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/desktop-widget-showcase.png" alt="Tithify Desktop Widget Showcase" width="750" />
+  <img src="tithify-site/public/desktop-widget-showcase.png" alt="Tithify Desktop Widget Showcase" width="750" />
 </p>
 
 ---
@@ -36,7 +36,7 @@
 Click the widget to open a full **Bikram Sambat Calendar** popup — powered by a native GDI+ rendering engine.
 
 <p align="center">
-  <img src="docs/calendar-window.png" alt="Bikram Sambat Interactive Calendar Popup" width="750" />
+  <img src="tithify-site/public/calendar-window.png" alt="Bikram Sambat Interactive Calendar Popup" width="750" />
 </p>
 
 - **Month Navigation:** Use the `‹` / `›` buttons or scroll the **mouse wheel** to navigate between months of the current BS year.
@@ -70,9 +70,9 @@ Tithify is 100% free and open-source. If you find it helpful for your daily work
 
 <div align="center">
 
-| <img src="docs/logos/esewa.png" alt="eSewa Logo" height="36" /> | <img src="docs/logos/Khalti.png" alt="Khalti Logo" height="36" /> |
+| <img src="tithify-site/public/donate/esewa-logo.png" alt="eSewa Logo" height="36" /> | <img src="tithify-site/public/donate/khalti-logo.png" alt="Khalti Logo" height="36" /> |
 | :---: | :---: |
-| <img src="docs/donate/esewa-qr.jpg" alt="eSewa QR Code" width="220" /> | <img src="docs/donate/khalti-qr.png" alt="Khalti QR Code" width="220" /> |
+| <img src="tithify-site/public/donate/esewa-qr.jpg" alt="eSewa QR Code" width="220" /> | <img src="tithify-site/public/donate/khalti-qr.png" alt="Khalti QR Code" width="220" /> |
 | **eSewa Mobile Wallet** | **Khalti Digital Wallet** |
 
 </div>
