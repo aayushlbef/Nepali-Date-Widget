@@ -72,7 +72,7 @@ Tithify is 100% free and open-source. If you find it helpful for your daily work
 
 | <img src="docs/logos/esewa.png" alt="eSewa Logo" height="36" /> | <img src="docs/logos/Khalti.png" alt="Khalti Logo" height="36" /> |
 | :---: | :---: |
-| <img src="docs/OR's/eSewa%20QR.jpg" alt="eSewa QR Code" width="220" /> | <img src="docs/OR's/Khalti%20QR.png" alt="Khalti QR Code" width="220" /> |
+| <img src="docs/donate/esewa-qr.jpg" alt="eSewa QR Code" width="220" /> | <img src="docs/donate/khalti-qr.png" alt="Khalti QR Code" width="220" /> |
 | **eSewa Mobile Wallet** | **Khalti Digital Wallet** |
 
 </div>
