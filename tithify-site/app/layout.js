@@ -118,6 +118,9 @@ export const metadata = {
     images: [`${siteUrl}/desktop-widget-showcase.png`],
   },
   manifest: "/manifest.webmanifest",
+  verification: {
+    google: "zuO06IaEvAbu52FGoqk_2WNOnbSK6NjgOLMxTSZRzFw",
+  },
   icons: {
     icon: [
       { url: "/icon.svg", type: "image/svg+xml" },
@@ -126,6 +129,7 @@ export const metadata = {
     apple: [{ url: "/apple-icon.svg", type: "image/svg+xml" }],
   },
   other: {
+    "google-site-verification": "zuO06IaEvAbu52FGoqk_2WNOnbSK6NjgOLMxTSZRzFw",
     "geo.region": "NP",
     "geo.placename": "Nepal",
     rating: "General",
@@ -241,6 +245,7 @@ export default function RootLayout({ children }) {
     >
       <head>
         <link rel="canonical" href={siteUrl} />
+        <meta name="google-site-verification" content="zuO06IaEvAbu52FGoqk_2WNOnbSK6NjgOLMxTSZRzFw" />
         <script
           type="application/ld+json"
           // eslint-disable-next-line react/no-danger
