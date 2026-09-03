@@ -1,5 +1,6 @@
 import "./globals.css";
 import { Sora, Inter, Noto_Sans_Devanagari } from "next/font/google";
+import { FAQS } from "@/lib/faqs";
 
 const sora = Sora({
   subsets: ["latin"],
@@ -21,8 +22,6 @@ const notoDevanagari = Noto_Sans_Devanagari({
   variable: "--font-deva",
   display: "swap",
 });
-
-import { FAQS } from "@/components/FAQ";
 
 const siteUrl = "https://tithify.guptaaayush.com.np";
 
