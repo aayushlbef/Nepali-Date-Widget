@@ -6,7 +6,7 @@
 
 <p align="center">
   <img src="tithify-site/public/logo.png" alt="Tithify Logo" width="120" />
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
   <img src="tithify-site/public/widiget_transparent_shot.png" alt="Tithify Transparent Widget" width="240" />
 </p>
 
