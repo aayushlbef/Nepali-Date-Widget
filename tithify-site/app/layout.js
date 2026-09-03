@@ -36,6 +36,15 @@ export const metadata = {
     "Download Tithify, the free, lightweight native Windows taskbar widget for Nepali Date (Bikram Sambat). Live BS calendar (1975–2100), public holidays, light/dark auto-theme, and 0% CPU idle usage.",
   keywords: [
     "Tithify",
+    "Tithify official",
+    "Tithify download",
+    "Tithify Windows",
+    "Tithify app",
+    "Tithify widget",
+    "Tithify Nepali Date",
+    "Tithify calendar",
+    "Tithify setup",
+    "Tithify github",
     "Nepali date widget",
     "Nepali date Windows taskbar",
     "Bikram Sambat Windows widget",
@@ -80,8 +89,8 @@ export const metadata = {
   openGraph: {
     type: "website",
     url: siteUrl,
-    siteName: "Tithify — Nepali Date Windows Taskbar Widget",
-    title: "Tithify — Nepali Date Windows Taskbar Widget | Bikram Sambat Calendar",
+    siteName: "Tithify",
+    title: "Tithify — Official Site | Nepali Date Windows Taskbar Widget",
     description:
       "Native Windows taskbar widget displaying real-time Bikram Sambat Nepali date. Features auto light/dark theme, offline BS calendar 1975–2100, zero CPU usage, and Nepali holidays.",
     locale: "en_US",

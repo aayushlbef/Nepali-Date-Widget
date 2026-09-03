@@ -1,10 +1,14 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, HelpCircle } from "lucide-react";
 
 export const FAQS = [
+  {
+    q: "What is Tithify?",
+    a: "Tithify is a lightweight, native C++ desktop widget for Windows that displays the current Nepali (Bikram Sambat — वि.सं.) date directly above your taskbar. It includes an interactive Bikram Sambat calendar (1975–2100 BS), Nepali government public holidays, auto light/dark theme adaptation, and uses virtually 0% CPU at idle."
+  },
   {
     q: "How do I show the Nepali date on my Windows taskbar?",
     a: "Simply install Tithify using the one-line PowerShell command (`irm https://raw.githubusercontent.com/aayushlbef/Tithify/main/install.ps1 | iex`) or download the standard Windows installer. Once launched, Tithify floats unobtrusively above your taskbar, showing the live Bikram Sambat (वि.सं.) date."

@@ -126,9 +126,13 @@ export default function Hero() {
               style={{ color: headlineA }}
               className="font-display text-5xl sm:text-6xl md:text-7xl font-extrabold leading-[1.02] tracking-tight"
             >
-              Nepali Date Widget{" "}
-              <br />
+              Tithify —{" "}
+              <br className="hidden sm:inline" />
               <span className="bg-gradient-to-r from-crimson via-rose-500 to-sapphire bg-clip-text text-transparent">
+                Nepali Date Widget
+              </span>
+              <br />
+              <span className="text-3xl sm:text-4xl md:text-5xl font-bold opacity-90 block mt-2 text-slate-400">
                 Above Your Taskbar
               </span>
             </motion.h1>
