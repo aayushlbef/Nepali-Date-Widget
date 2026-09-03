@@ -38,7 +38,7 @@
 Click the widget to open a full **Bikram Sambat Calendar** popup — powered by a native GDI+ rendering engine.
 
 <p align="center">
-  <img src="tithify-site/public/calendar-window.png" alt="Bikram Sambat Interactive Calendar Popup" width="750" />
+  <img src="tithify-site/public/calendar-window.png" alt="Bikram Sambat Interactive Calendar Popup" width="350" />
 </p>
 
 - **Month Navigation:** Use the `‹` / `›` buttons or scroll the **mouse wheel** to navigate between months of the current BS year.
