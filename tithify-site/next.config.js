@@ -2,12 +2,10 @@
 const { PHASE_PRODUCTION_BUILD } = require("next/constants");
 
 module.exports = (phase) => {
-  // GitHub Pages serves the site from a subpath:
-  // https://aayushlbef.github.io/Tithify
-  // Only apply the prefix when building for production (deploy).
-  // Local `next dev` runs at the root, unaffected.
-  const basePath =
-    phase === PHASE_PRODUCTION_BUILD ? "/Tithify" : "";
+  // Hosted on custom domain:
+  // https://tithify.guptaaayush.com.np
+  // Served directly from root domain.
+  const basePath = "";
 
   /** @type {import('next').NextConfig} */
   const nextConfig = {

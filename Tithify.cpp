@@ -2123,7 +2123,7 @@ void ShowContextMenu(HWND hWnd, POINT pt) {
         SaveConfig();
         RenderWidget(hWnd);
     } else if (cmd == 6) {
-        ShellExecuteW(NULL, L"open", L"https://aayushlbef.github.io/Tithify/#sponsor", NULL, NULL, SW_SHOWNORMAL);
+        ShellExecuteW(NULL, L"open", L"https://tithify.guptaaayush.com.np/#sponsor", NULL, NULL, SW_SHOWNORMAL);
     } else if (cmd == 7) {
         ToggleCalendar(hWnd);
     }

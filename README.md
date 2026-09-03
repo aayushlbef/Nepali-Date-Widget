@@ -1,6 +1,10 @@
 # Tithify — Nepali Date Windows Taskbar Widget
 
 <p align="center">
+  <a href="https://tithify.guptaaayush.com.np"><strong>🌐 Official Website: tithify.guptaaayush.com.np</strong></a>
+</p>
+
+<p align="center">
   <img src="docs/logo.png" alt="Tithify Logo" width="120" />
 </p>
 

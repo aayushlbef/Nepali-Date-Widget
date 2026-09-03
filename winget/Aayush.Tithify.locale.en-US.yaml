@@ -7,7 +7,7 @@ PackageLocale: en-US
 Publisher: Aayush
 PublisherUrl: https://github.com/aayushlbef
 PackageName: Tithify
-PackageUrl: https://github.com/aayushlbef/Tithify
+PackageUrl: https://tithify.guptaaayush.com.np
 License: MIT
 LicenseUrl: https://github.com/aayushlbef/Tithify/blob/main/LICENSE
 ShortDescription: Tithify - A lightweight, native C++ desktop widget for Windows that displays the current Nepali (Bikram Sambat) date.

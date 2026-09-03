@@ -22,7 +22,7 @@ const notoDevanagari = Noto_Sans_Devanagari({
   display: "swap",
 });
 
-const siteUrl = "https://aayushlbef.github.io/Tithify";
+const siteUrl = "https://tithify.guptaaayush.com.np";
 
 export const metadata = {
   metadataBase: new URL(siteUrl),
@@ -65,7 +65,7 @@ export const metadata = {
       "A lightweight, native Windows widget that shows the Bikram Sambat date above your taskbar. Theme auto-adapt, offline calendar, zero CPU idle cost.",
     images: [
       {
-        // Absolute URL — metadataBase is set to the Tithify GitHub Pages root.
+        // Absolute URL — metadataBase is set to https://tithify.guptaaayush.com.np.
         url: `${siteUrl}/widiget_transparent_shot.png`,
         width: 700,
         height: 467,

@@ -6,7 +6,7 @@
 #define MyAppPublisher "Aayush"
 #define MyAppURL "https://github.com/aayushlbef/Tithify"
 #define MyAppExeName "Tithify.exe"
-#define MyAppWebsite "https://aayushlbef.github.io/Tithify/"
+#define MyAppWebsite "https://tithify.guptaaayush.com.np/"
 
 [Setup]
 ; Unique App ID - DO NOT change this after first release

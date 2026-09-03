@@ -4,6 +4,6 @@ export default function robots() {
       userAgent: "*",
       allow: "/",
     },
-    sitemap: "https://aayushlbef.github.io/Tithify/sitemap.xml",
+    sitemap: "https://tithify.guptaaayush.com.np/sitemap.xml",
   };
 }

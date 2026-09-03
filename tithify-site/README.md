@@ -1,5 +1,7 @@
 # Nepali Date Widget — Marketing Site
 
+Live at **[https://tithify.guptaaayush.com.np](https://tithify.guptaaayush.com.np)**
+
 A Next.js (App Router) marketing site for the Nepali Date Taskbar Widget, built with Tailwind CSS and Framer Motion.
 
 ## Signature idea
