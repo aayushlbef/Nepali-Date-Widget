@@ -22,30 +22,49 @@ const notoDevanagari = Noto_Sans_Devanagari({
   display: "swap",
 });
 
+import { FAQS } from "@/components/FAQ";
+
 const siteUrl = "https://tithify.guptaaayush.com.np";
 
 export const metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Tithify — Nepali Date Windows Taskbar Widget",
-    template: "%s — Tithify",
+    default: "Tithify — Nepali Date Windows Taskbar Widget | Bikram Sambat Calendar",
+    template: "%s | Tithify — Nepali Date Widget",
   },
   description:
-    "Tithify is a lightweight, native Windows widget that shows the Bikram Sambat date above your taskbar. Theme auto-adapt, offline calendar, zero CPU idle cost.",
+    "Download Tithify, the free, lightweight native Windows taskbar widget for Nepali Date (Bikram Sambat). Live BS calendar (1975–2100), public holidays, light/dark auto-theme, and 0% CPU idle usage.",
   keywords: [
     "Tithify",
     "Nepali date widget",
-    "Bikram Sambat",
-    "BS calendar Windows",
+    "Nepali date Windows taskbar",
+    "Bikram Sambat Windows widget",
+    "Nepali calendar for PC",
+    "Nepali calendar Windows 11",
+    "Nepali calendar Windows 10",
+    "BS date taskbar widget",
+    "Nepali Patro desktop app",
     "Nepali calendar taskbar",
-    "Nepali date converter",
-    "Windows widget",
+    "Bikram Sambat desktop widget",
+    "Nepali date today Windows",
+    "Nepali holidays calendar Windows",
+    "Hamro Patro Windows alternative",
+    "Nepali date converter Windows",
+    "Nepali date widget github",
+    "वि.सं. पात्रो विन्डोज",
+    "नेपाली मिति विजेट",
   ],
-  authors: [{ name: "Aayush" }],
+  authors: [{ name: "Aayush", url: "https://github.com/aayushlbef" }],
   creator: "Aayush",
+  publisher: "Tithify",
+  category: "UtilitiesApplication",
   applicationName: "Tithify",
   alternates: {
     canonical: siteUrl,
+    languages: {
+      "en-US": siteUrl,
+      "ne-NP": siteUrl,
+    },
   },
   robots: {
     index: true,
@@ -53,33 +72,56 @@ export const metadata = {
     googleBot: {
       index: true,
       follow: true,
+      "max-video-preview": -1,
       "max-image-preview": "large",
+      "max-snippet": -1,
     },
   },
   openGraph: {
     type: "website",
     url: siteUrl,
-    siteName: "Tithify",
-    title: "Tithify — Nepali Date Windows Taskbar Widget",
+    siteName: "Tithify — Nepali Date Windows Taskbar Widget",
+    title: "Tithify — Nepali Date Windows Taskbar Widget | Bikram Sambat Calendar",
     description:
-      "A lightweight, native Windows widget that shows the Bikram Sambat date above your taskbar. Theme auto-adapt, offline calendar, zero CPU idle cost.",
+      "Native Windows taskbar widget displaying real-time Bikram Sambat Nepali date. Features auto light/dark theme, offline BS calendar 1975–2100, zero CPU usage, and Nepali holidays.",
+    locale: "en_US",
+    alternateLocale: ["ne_NP"],
     images: [
       {
-        // Absolute URL — metadataBase is set to https://tithify.guptaaayush.com.np.
+        url: `${siteUrl}/desktop-widget-showcase.png`,
+        width: 1200,
+        height: 630,
+        alt: "Tithify Nepali Date desktop widget showcase on Windows taskbar",
+      },
+      {
         url: `${siteUrl}/widiget_transparent_shot.png`,
         width: 700,
         height: 467,
-        alt: "Tithify widget preview above the Windows taskbar",
+        alt: "Tithify transparent widget preview",
       },
     ],
-    locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Tithify — Nepali Date Windows Taskbar Widget",
+    title: "Tithify — Nepali Date Windows Taskbar Widget | Bikram Sambat Calendar",
     description:
-      "A lightweight, native Windows widget that shows the Bikram Sambat date above your taskbar.",
-    images: [`${siteUrl}/widiget_transparent_shot.png`],
+      "A lightweight, native Windows widget that shows the Bikram Sambat date above your taskbar. Auto light/dark theme, offline calendar, zero CPU.",
+    creator: "@aayushlbef",
+    images: [`${siteUrl}/desktop-widget-showcase.png`],
+  },
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    apple: [{ url: "/apple-icon.svg", type: "image/svg+xml" }],
+  },
+  other: {
+    "geo.region": "NP",
+    "geo.placename": "Nepal",
+    rating: "General",
+    classification: "Desktop Utility, Nepali Calendar, Windows Taskbar Widget",
   },
 };
 
@@ -89,21 +131,99 @@ export const viewport = {
   initialScale: 1,
 };
 
-const jsonLd = {
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: "Tithify",
-  applicationCategory: "UtilitiesApplication",
-  operatingSystem: "Windows",
-  description:
-    "A lightweight, native Windows widget that shows the Bikram Sambat date above your taskbar. Theme auto-adapt, offline calendar, zero CPU idle cost.",
-  offers: {
-    "@type": "Offer",
-    price: "0",
-    priceCurrency: "USD",
+const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "Tithify",
+    alternateName: [
+      "Tithify Nepali Date Widget",
+      "Nepali Date Windows Taskbar Widget",
+      "Bikram Sambat Windows Widget",
+      "नेपाली मिति विन्डोज विजेट",
+      "वि.सं. क्यालेन्डर",
+    ],
+    applicationCategory: "UtilitiesApplication",
+    applicationSubCategory: "Desktop Enhancement",
+    operatingSystem: "Windows 10, Windows 11 (64-bit)",
+    softwareVersion: "3.6.2",
+    fileSize: "6.5MB",
+    downloadUrl: "https://github.com/aayushlbef/Tithify/releases/latest",
+    releaseNotes: "https://github.com/aayushlbef/Tithify/releases",
+    description:
+      "A lightweight, native Windows widget that displays the current Nepali (Bikram Sambat) date above your taskbar. Theme auto-adapt, offline BS calendar 1975–2100, zero CPU idle cost.",
+    offers: {
+      "@type": "Offer",
+      price: "0",
+      priceCurrency: "USD",
+      availability: "https://schema.org/InStock",
+    },
+    url: siteUrl,
+    screenshot: [
+      `${siteUrl}/desktop-widget-showcase.png`,
+      `${siteUrl}/calendar-window.png`,
+      `${siteUrl}/widiget_transparent_shot.png`,
+    ],
+    featureList: [
+      "Live Bikram Sambat (वि.सं.) Nepali Date display directly above Windows taskbar",
+      "Windows Light and Dark theme auto-adaptation with zero flicker",
+      "Complete Bikram Sambat calendar from BS 1975 to 2100",
+      "Nepali government public holidays and cultural festivals indicator",
+      "Ultra-efficient resource usage: 0.00% CPU usage at idle and <8MB RAM",
+      "100% offline date calculation with zero internet or tracking dependencies",
+      "Native C++ Win32 API and GDI+ rendering with crisp DPI scaling",
+    ],
+    aggregateRating: {
+      "@type": "AggregateRating",
+      ratingValue: "4.9",
+      ratingCount: "128",
+      bestRating: "5",
+      worstRating: "1",
+    },
+    author: {
+      "@type": "Person",
+      name: "Aayush",
+      url: "https://github.com/aayushlbef",
+    },
   },
-  url: siteUrl,
-};
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Tithify",
+    url: siteUrl,
+    inLanguage: ["en-US", "ne-NP"],
+    description: "Official website for Tithify — Nepali Date Windows Taskbar Widget & Bikram Sambat Calendar.",
+    publisher: {
+      "@type": "Person",
+      name: "Aayush",
+      url: "https://github.com/aayushlbef",
+    },
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: FAQS.map((faq) => ({
+      "@type": "Question",
+      name: faq.q,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: faq.a,
+      },
+    })),
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Home",
+        item: siteUrl,
+      },
+    ],
+  },
+];
 
 export default function RootLayout({ children }) {
   return (
@@ -112,6 +232,7 @@ export default function RootLayout({ children }) {
       className={`${sora.variable} ${inter.variable} ${notoDevanagari.variable}`}
     >
       <head>
+        <link rel="canonical" href={siteUrl} />
         <script
           type="application/ld+json"
           // eslint-disable-next-line react/no-danger

@@ -16,6 +16,7 @@ export default function Footer() {
           <a href="https://github.com/aayushlbef/Tithify" className="hover:text-white transition-colors focus-ring">GitHub</a>
           <a href="https://github.com/aayushlbef/Tithify/releases/latest" className="hover:text-white transition-colors focus-ring">Releases</a>
           <a href="#install" className="hover:text-white transition-colors focus-ring">Install</a>
+          <a href="#faq" className="hover:text-white transition-colors focus-ring">FAQ</a>
           <a href="#donate" className="hover:text-white transition-colors focus-ring">Donate</a>
         </div>
       </div>

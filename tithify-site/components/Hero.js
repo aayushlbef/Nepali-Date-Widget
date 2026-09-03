@@ -118,7 +118,7 @@ export default function Hero() {
             className="inline-flex w-fit items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-medium mb-8"
           >
             <motion.span style={{ backgroundColor: dotColor }} className="w-2 h-2 rounded-full" />
-            Lightweight. Native. Beautiful.
+            Windows 11 & 10 · Bikram Sambat (वि.सं.) · Native C++
           </motion.div>
 
           <div className="max-w-2xl">
@@ -126,16 +126,15 @@ export default function Hero() {
               style={{ color: headlineA }}
               className="font-display text-5xl sm:text-6xl md:text-7xl font-extrabold leading-[1.02] tracking-tight"
             >
-              Your{" "}
-              <span className="bg-gradient-to-r from-crimson via-rose-500 to-sapphire bg-clip-text text-transparent">
-                Nepali Date,
-              </span>
+              Nepali Date Widget{" "}
               <br />
-              Your Way.
+              <span className="bg-gradient-to-r from-crimson via-rose-500 to-sapphire bg-clip-text text-transparent">
+                Above Your Taskbar
+              </span>
             </motion.h1>
 
             <motion.p style={{ color: bodyText }} className="mt-6 text-lg md:text-xl leading-relaxed max-w-lg">
-              A desktop widget that shows the Nepali (Bikram Sambat) date, specially designed to directly view above your taskbar.
+              Tithify is a lightweight native desktop widget that displays the real-time Bikram Sambat (वि.सं.) Nepali date and calendar on Windows. Automatic light/dark theme adaptation, 100% offline, and zero CPU usage.
             </motion.p>
 
             <div className="mt-9 flex flex-wrap items-center gap-6"> 

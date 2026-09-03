@@ -1,0 +1,21 @@
+﻿{
+  "name": "Tithify - Nepali Date Windows Taskbar Widget",
+  "short_name": "Tithify",
+  "description": "Lightweight native Windows taskbar widget for Nepali Date (Bikram Sambat) and calendar.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b1120",
+  "theme_color": "#0b1120",
+  "icons": [
+    {
+      "src": "/logo-mark.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/logo-mark.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

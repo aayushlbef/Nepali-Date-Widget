@@ -46,7 +46,7 @@ export default function HowItWorks() {
             Nothing borrowed.
           </h2>
           <p className="mt-5 text-lg text-slate-600 leading-relaxed max-w-md">
-            No Electron, no browser runtime — just the Win32 API and GDI+, talking to your OS directly.
+            Zero Electron bloat, no Chromium or Node.js runtime. Built in pure native C++ with the Win32 API and GDI+, communicating directly with Windows.
           </p>
         </motion.div>
 

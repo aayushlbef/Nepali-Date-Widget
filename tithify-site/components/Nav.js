@@ -137,6 +137,13 @@ export default function Nav() {
             </motion.a>
             <motion.a
               style={{ color: linkText }}
+              href="#faq"
+              className="hover:!text-crimson transition-colors focus-ring"
+            >
+              FAQ
+            </motion.a>
+            <motion.a
+              style={{ color: linkText }}
               href="#donate"
               className="hover:!text-crimson transition-colors focus-ring"
             >

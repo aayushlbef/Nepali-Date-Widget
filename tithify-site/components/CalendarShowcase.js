@@ -35,12 +35,12 @@ export default function CalendarShowcase() {
             Live Desktop Experience
           </span>
           <h2 className="mt-4 font-display text-4xl font-extrabold tracking-tight text-slate-900 md:text-5xl">
-            Live on your desktop,
+            Interactive Bikram Sambat Calendar,
             <br />
-            right where you need it.
+            right above your taskbar.
           </h2>
           <p className="mt-5 text-lg leading-relaxed text-slate-600">
-            Watch how effortlessly the widget integrates above your Windows taskbar. Seamless Bikram Sambat date visibility, zero clutter, and native desktop aesthetics.
+            Watch how effortlessly the widget integrates above your Windows taskbar. Seamless Bikram Sambat (वि.सं.) date visibility, Nepali public holidays, cultural events, and native desktop aesthetics.
           </p>
 
           <div className="mt-8 space-y-5">

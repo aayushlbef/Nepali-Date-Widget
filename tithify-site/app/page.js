@@ -13,6 +13,7 @@ const HowItWorks = dynamic(() => import("@/components/HowItWorks"));
 const Efficiency = dynamic(() => import("@/components/Efficiency"));
 const Install = dynamic(() => import("@/components/Install"));
 const GettingStarted = dynamic(() => import("@/components/GettingStarted"));
+const FAQ = dynamic(() => import("@/components/FAQ"));
 const Donate = dynamic(() => import("@/components/Donate"));
 
 export default function Home() {
@@ -26,6 +27,7 @@ export default function Home() {
       <Efficiency />
       <Install />
       <GettingStarted />
+      <FAQ />
       <Donate />
       <Footer />
     </main>
