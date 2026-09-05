@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <shlobj.h>
+#include <commdlg.h>
 
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "user32.lib")
@@ -18,6 +19,7 @@
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "comdlg32.lib")
 
 using namespace Gdiplus;
 
@@ -36,6 +38,8 @@ using namespace Gdiplus;
 // ── Global State ─────────────────────────────────────────────────────────────
 ULONG_PTR g_gdiplusToken;
 HWND g_hWnd = NULL;
+extern HWND g_hCalWnd;
+extern bool g_isCalendarOpen;
 bool g_setupMode = true;
 int g_xPos = 500, g_yPos = 1000;
 POINT g_dragStart = { 0, 0 };
@@ -49,9 +53,16 @@ bool g_showDay = true;
 float g_dpiScale = 1.0f;
 
 bool g_hiddenForFullscreen = false;
-bool g_hiddenForTaskbar = false;
-int g_currentShiftX = 0;
-int g_currentShiftY = 0;
+
+// ── Background Customization State ───────────────────────────────────────────
+int g_bgPresetMode = 0;            // 0 = Transparent (Default), 1 = Custom Color, 2 = Dark Glass, 3 = Light Glass, 4 = Solid Black, 5 = Solid White, 6 = Red Accent, 7 = Blue Accent
+COLORREF g_bgColorRGB = RGB(31, 31, 31);
+int g_bgOpacity = 200;             // Opacity level (0..255)
+
+// ── Custom Menu State ────────────────────────────────────────────────────────
+HWND g_hMenuWnd = NULL;
+int g_menuXPos = 0, g_menuYPos = 0;
+int g_menuHoverIndex = -1;
 
 // ── Theme Detection ──────────────────────────────────────────────────────────
 bool g_isLightTheme = false;   // true = Windows light theme, false = dark
@@ -281,111 +292,183 @@ static void LaunchUpdaterConsole(const wchar_t* version) {
 
 
 // ── Fullscreen App Detection ─────────────────────────────────────────────────
-// Returns true if the foreground window completely covers its monitor
-// (e.g. a movie player, game, or browser in fullscreen mode).
+bool IsShellProcess(DWORD pid) {
+    if (pid == 0) return true;
+
+    // Check explorer process id
+    DWORD explorerPid = 0;
+    HWND hShell = GetShellWindow();
+    if (hShell) {
+        GetWindowThreadProcessId(hShell, &explorerPid);
+    } else {
+        HWND hTb = FindWindow(L"Shell_TrayWnd", NULL);
+        if (hTb) GetWindowThreadProcessId(hTb, &explorerPid);
+    }
+    if (pid == explorerPid) return true;
+
+    // Check process executable name
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (hProcess) {
+        wchar_t exePath[MAX_PATH] = {0};
+        DWORD size = MAX_PATH;
+        if (QueryFullProcessImageNameW(hProcess, 0, exePath, &size)) {
+            const wchar_t* fileName = wcsrchr(exePath, L'\\');
+            if (fileName) fileName++;
+            else fileName = exePath;
+
+            if (_wcsicmp(fileName, L"explorer.exe") == 0 ||
+                _wcsicmp(fileName, L"StartMenuExperienceHost.exe") == 0 ||
+                _wcsicmp(fileName, L"SearchHost.exe") == 0 ||
+                _wcsicmp(fileName, L"ShellExperienceHost.exe") == 0 ||
+                _wcsicmp(fileName, L"TextInputHost.exe") == 0 ||
+                _wcsicmp(fileName, L"ScreenClippingHost.exe") == 0 ||
+                _wcsicmp(fileName, L"SnippingTool.exe") == 0 ||
+                _wcsicmp(fileName, L"SnippingToolApp.exe") == 0 ||
+                _wcsicmp(fileName, L"SnipAndSketch.exe") == 0 ||
+                _wcsicmp(fileName, L"GameBar.exe") == 0 ||
+                _wcsicmp(fileName, L"GameBarFTServer.exe") == 0 ||
+                _wcsicmp(fileName, L"LockApp.exe") == 0 ||
+                _wcsicmp(fileName, L"SystemSettings.exe") == 0 ||
+                wcsstr(fileName, L"ScreenClip") != NULL ||
+                wcsstr(fileName, L"Snipping") != NULL) {
+                CloseHandle(hProcess);
+                return true;
+            }
+        }
+        CloseHandle(hProcess);
+    }
+    return false;
+}
+
+// Returns true if the foreground window is in true fullscreen mode
+// (e.g. YouTube fullscreen, media players, games, F11 browser) on the same monitor as Tithify.
 bool IsFullscreenAppRunning() {
+    if (!g_hWnd || g_setupMode) return false;
+
+    // 1. Primary Check: Windows notification state
+    // When in standard desktop mode (working with apps, browsing web, Start menu, Show Desktop):
+    // SHQueryUserNotificationState reports QUNS_ACCEPTS_NOTIFICATIONS (5) or QUNS_APP (7).
+    // Windows only sets QUNS_BUSY (2), QUNS_RUNNING_D3D_FULL_SCREEN (3), or QUNS_PRESENTATION_MODE (4)
+    // when a genuine full-screen application (like YouTube fullscreen, video players, games) is active.
+    QUERY_USER_NOTIFICATION_STATE quns = (QUERY_USER_NOTIFICATION_STATE)0;
+    if (SUCCEEDED(SHQueryUserNotificationState(&quns))) {
+        if (quns != QUNS_BUSY &&
+            quns != QUNS_RUNNING_D3D_FULL_SCREEN &&
+            quns != QUNS_PRESENTATION_MODE) {
+            return false;
+        }
+    }
+
+    // 2. Verify the active foreground window
     HWND hForeground = GetForegroundWindow();
     if (!hForeground) return false;
 
-    // Desktop and shell windows aren't "fullscreen apps"
+    // Desktop and shell windows are never fullscreen apps
     if (hForeground == GetDesktopWindow() || hForeground == GetShellWindow())
         return false;
 
-    // Ignore our own widget
-    if (hForeground == g_hWnd) return false;
+    // Ignore our own widget windows
+    if (hForeground == g_hWnd || hForeground == g_hCalWnd || hForeground == g_hMenuWnd)
+        return false;
+
+    // Ignore transparent / click-through overlay windows (e.g. snipping tool overlay)
+    LONG_PTR exStyle = GetWindowLongPtrW(hForeground, GWL_EXSTYLE);
+    if (exStyle & WS_EX_TRANSPARENT) {
+        return false;
+    }
+
+    // Ignore Windows Explorer / Desktop / Taskbar / Shell / Snipping window classes
+    wchar_t cls[256] = {0};
+    if (GetClassNameW(hForeground, cls, 256) > 0) {
+        if (wcscmp(cls, L"WorkerW") == 0 ||
+            wcscmp(cls, L"Progman") == 0 ||
+            wcscmp(cls, L"Shell_TrayWnd") == 0 ||
+            wcscmp(cls, L"Shell_SecondaryTrayWnd") == 0 ||
+            wcscmp(cls, L"SHELLDLL_DefView") == 0 ||
+            wcscmp(cls, L"SysListView32") == 0 ||
+            wcscmp(cls, L"Windows.UI.Core.CoreWindow") == 0 ||
+            wcscmp(cls, L"XamlExplorerHostIslandWindow") == 0 ||
+            wcscmp(cls, L"Xaml_WindowedPopupClass") == 0 ||
+            wcscmp(cls, L"TopLevelWindowForOverflowXamlIsland") == 0 ||
+            wcscmp(cls, L"ScreenClippingHost") == 0 ||
+            wcscmp(cls, L"SnippingTool") == 0 ||
+            wcsstr(cls, L"ScreenClip") != NULL ||
+            wcsstr(cls, L"Snipping") != NULL) {
+            return false;
+        }
+    }
+
+    // Check window title for snipping tools
+    wchar_t title[256] = {0};
+    if (GetWindowTextW(hForeground, title, 256) > 0) {
+        if (wcsstr(title, L"Snipping") != NULL ||
+            wcsstr(title, L"Screen Clipping") != NULL ||
+            wcsstr(title, L"Snip & Sketch") != NULL) {
+            return false;
+        }
+    }
+
+    // Check process ID: never consider shell host or snipping tool processes as fullscreen apps
+    DWORD fgPid = 0;
+    GetWindowThreadProcessId(hForeground, &fgPid);
+    if (IsShellProcess(fgPid)) {
+        return false;
+    }
+
+    // 3. Multi-Monitor Awareness: only hide if fullscreen app is on the same monitor as Tithify
+    HMONITOR hMonApp = MonitorFromWindow(hForeground, MONITOR_DEFAULTTONEAREST);
+    HMONITOR hMonWidget = MonitorFromWindow(g_hWnd, MONITOR_DEFAULTTONEAREST);
+    if (!hMonApp || !hMonWidget || hMonApp != hMonWidget) {
+        return false;
+    }
+
+    MONITORINFO mi = { sizeof(mi) };
+    if (!GetMonitorInfo(hMonApp, &mi)) return false;
 
     RECT rcWnd;
-    GetWindowRect(hForeground, &rcWnd);
+    if (!GetWindowRect(hForeground, &rcWnd)) return false;
 
-    // Get the monitor the foreground window is on
-    HMONITOR hMon = MonitorFromWindow(hForeground, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO mi = { sizeof(mi) };
-    GetMonitorInfo(hMon, &mi);
+    // 4. Geometry Check: ensure window covers the entire monitor
+    bool coversMonitor = (rcWnd.left   <= mi.rcMonitor.left  &&
+                          rcWnd.top    <= mi.rcMonitor.top   &&
+                          rcWnd.right  >= mi.rcMonitor.right &&
+                          rcWnd.bottom >= mi.rcMonitor.bottom);
+    if (!coversMonitor) return false;
 
-    // If the window covers the entire monitor, it's fullscreen
-    return (rcWnd.left   <= mi.rcMonitor.left  &&
-            rcWnd.top    <= mi.rcMonitor.top   &&
-            rcWnd.right  >= mi.rcMonitor.right &&
-            rcWnd.bottom >= mi.rcMonitor.bottom);
+    return true;
 }
 
-// ── Auto-Hide Taskbar Sync & Animation State ─────────────────────────────────
-struct TaskbarSyncState {
-    bool isAutoHide = false;
-    bool isCompletelyHidden = false;
-    int shiftX = 0;
-    int shiftY = 0;
-};
+// ── Real-Time Shell / Foreground Event Hook ──────────────────────────────────
+HWINEVENTHOOK g_hEventHook = NULL;
 
-TaskbarSyncState GetTaskbarSyncState() {
-    TaskbarSyncState state;
-    APPBARDATA abd = { sizeof(APPBARDATA) };
-    UINT abState = (UINT)SHAppBarMessage(ABM_GETSTATE, &abd);
-    state.isAutoHide = (abState & ABS_AUTOHIDE) != 0;
-    if (!state.isAutoHide) return state;
+void CALLBACK WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hwnd,
+                           LONG idObject, LONG idChild, DWORD dwEventThread, DWORD dwmsEventTime) {
+    if (!g_hWnd || !IsWindow(g_hWnd) || g_hiddenForFullscreen) return;
 
-    HWND hTaskbar = FindWindow(L"Shell_TrayWnd", NULL);
-    if (!hTaskbar) return state;
-
-    RECT rcTaskbar;
-    if (!GetWindowRect(hTaskbar, &rcTaskbar)) return state;
-
-    HMONITOR hMon = MonitorFromWindow(hTaskbar, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO mi = { sizeof(mi) };
-    GetMonitorInfo(hMon, &mi);
-
-    static int s_expandedHeight = 48;
-    static int s_expandedWidth = 48;
-
-    int tbHeight = rcTaskbar.bottom - rcTaskbar.top;
-    int tbWidth = rcTaskbar.right - rcTaskbar.left;
-
-    if (tbHeight > 10) s_expandedHeight = tbHeight;
-    if (tbWidth > 10) s_expandedWidth = tbWidth;
-
-    // Detect Taskbar Orientation (Bottom, Top, Left, Right) relative to monitor bounds
-    // Bottom Taskbar (default):
-    if (rcTaskbar.bottom >= mi.rcMonitor.bottom - 10) {
-        int normalTop = mi.rcMonitor.bottom - s_expandedHeight;
-        state.shiftY = rcTaskbar.top - normalTop;
-        if (state.shiftY < 0) state.shiftY = 0;
-
-        if (tbHeight <= 4 || rcTaskbar.top >= mi.rcMonitor.bottom - 4) {
-            state.isCompletelyHidden = true;
-        }
+    // When foreground window or focus changes across the system (Start, Search, Taskbar, Show Desktop),
+    // immediately ensure Tithify is not iconic and sits on top of the taskbar.
+    if (IsIconic(g_hWnd)) {
+        ShowWindow(g_hWnd, SW_RESTORE);
     }
-    // Top Taskbar:
-    else if (rcTaskbar.top <= mi.rcMonitor.top + 10) {
-        int normalBottom = mi.rcMonitor.top + s_expandedHeight;
-        state.shiftY = rcTaskbar.bottom - normalBottom;
-        if (state.shiftY > 0) state.shiftY = 0;
-
-        if (tbHeight <= 4 || rcTaskbar.bottom <= mi.rcMonitor.top + 4) {
-            state.isCompletelyHidden = true;
-        }
+    if (!g_isMenuOpen && !g_isCalendarOpen) {
+        SetWindowPos(g_hWnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
     }
-    // Right Taskbar:
-    else if (rcTaskbar.right >= mi.rcMonitor.right - 10) {
-        int normalLeft = mi.rcMonitor.right - s_expandedWidth;
-        state.shiftX = rcTaskbar.left - normalLeft;
-        if (state.shiftX < 0) state.shiftX = 0;
+}
 
-        if (tbWidth <= 4 || rcTaskbar.left >= mi.rcMonitor.right - 4) {
-            state.isCompletelyHidden = true;
-        }
-    }
-    // Left Taskbar:
-    else if (rcTaskbar.left <= mi.rcMonitor.left + 10) {
-        int normalRight = mi.rcMonitor.left + s_expandedWidth;
-        state.shiftX = rcTaskbar.right - normalRight;
-        if (state.shiftX > 0) state.shiftX = 0;
+void UpdateWidgetMode() {
+    if (!g_hWnd) return;
 
-        if (tbWidth <= 4 || rcTaskbar.right <= mi.rcMonitor.left + 4) {
-            state.isCompletelyHidden = true;
-        }
+    // Set Taskbar as owner so Windows Window Manager naturally keeps Tithify above the taskbar.
+    // In Win32, an owned popup window is always placed above its owner in Z-order.
+    HWND hTaskbar = FindWindowW(L"Shell_TrayWnd", NULL);
+    if (hTaskbar) {
+        SetWindowLongPtr(g_hWnd, GWLP_HWNDPARENT, (LONG_PTR)hTaskbar);
     }
 
-    return state;
+    // Always maintain HWND_TOPMOST so Tithify stays visible over the taskbar and desktop
+    SetWindowPos(g_hWnd, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
 }
 
 
@@ -400,6 +483,8 @@ std::wstring GetConfigPath() {
     }
     return ws + L"\\tithify.cfg";
 }
+
+void RenderWidget(HWND hWnd);
 
 void LoadConfig() {
     std::wstring path = GetConfigPath();
@@ -417,13 +502,17 @@ void LoadConfig() {
         file = fopen(nLegacy.c_str(), "r");
     }
     if (file) {
-        int x, y, setup, showDay = 1;
-        int n = fscanf(file, "%d,%d,%d,%d", &x, &y, &setup, &showDay);
+        int x, y, setup, showDay = 1, bgPreset = 0, opacity = 200;
+        unsigned int colorVal = (unsigned int)RGB(31, 31, 31);
+        int n = fscanf(file, "%d,%d,%d,%d,%u,%d,%d", &x, &y, &setup, &showDay, &colorVal, &opacity, &bgPreset);
         if (n >= 3) {
             g_xPos = x;
             g_yPos = y;
             g_setupMode = (setup != 0);
             if (n >= 4) g_showDay = (showDay != 0);
+            if (n >= 5) g_bgColorRGB = (COLORREF)colorVal;
+            if (n >= 6) g_bgOpacity = opacity;
+            if (n >= 7) g_bgPresetMode = bgPreset;
         }
         fclose(file);
     }
@@ -434,9 +523,35 @@ void SaveConfig() {
     std::string npath(path.begin(), path.end());
     FILE* file = fopen(npath.c_str(), "w");
     if (file) {
-        fprintf(file, "%d,%d,%d,%d", g_xPos, g_yPos, g_setupMode ? 1 : 0, g_showDay ? 1 : 0);
+        fprintf(file, "%d,%d,%d,%d,%u,%d,%d",
+                g_xPos, g_yPos, g_setupMode ? 1 : 0, g_showDay ? 1 : 0,
+                (unsigned int)g_bgColorRGB, g_bgOpacity, g_bgPresetMode);
         fclose(file);
     }
+}
+
+bool PickCustomBackgroundColor(HWND hWndOwner) {
+    static COLORREF custColors[16] = {
+        RGB(255,255,255), RGB(0,0,0), RGB(240,240,240), RGB(32,32,32),
+        RGB(230,50,50), RGB(50,180,50), RGB(50,120,240), RGB(240,180,50),
+        RGB(150,50,200), RGB(50,200,200), RGB(255,128,0), RGB(128,128,128),
+        RGB(64,64,64), RGB(192,192,192), RGB(255,192,203), RGB(128,0,0)
+    };
+
+    CHOOSECOLORW cc = { sizeof(CHOOSECOLORW) };
+    cc.hwndOwner = hWndOwner;
+    cc.lpCustColors = custColors;
+    cc.rgbResult = g_bgColorRGB;
+    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+
+    if (ChooseColorW(&cc)) {
+        g_bgColorRGB = cc.rgbResult;
+        g_bgPresetMode = 1; // Custom color mode
+        SaveConfig();
+        if (g_hWnd) RenderWidget(g_hWnd);
+        return true;
+    }
+    return false;
 }
 
 // ── Startup Registry Helpers ────────────────────────────────────────────────
@@ -1155,6 +1270,17 @@ int g_hoveredBtn = -1;
 int g_hoveredCell = -1;
 bool g_hasDragged = false;
 
+RECT g_rcCalCard = { 0, 0, 0, 0 };
+RECT g_rcCalEventCard = { 0, 0, 0, 0 };
+bool g_calHasEvent = false;
+
+bool IsPointInCalendar(POINT pt) {
+    if (!g_isCalendarOpen) return false;
+    if (PtInRect(&g_rcCalCard, pt)) return true;
+    if (g_calHasEvent && PtInRect(&g_rcCalEventCard, pt)) return true;
+    return false;
+}
+
 enum CalendarButtonId {
     BTN_NONE = -1,
     BTN_PREV_MONTH = 102,
@@ -1239,6 +1365,15 @@ void RenderCalendar(HWND hWnd, BYTE alpha = 255, int overrideX = -1, int overrid
         calCardOffsetX = (float)(baseX - screenX);
     }
     int screenY = baseY;
+
+    g_rcCalCard.left = screenX + (int)calCardOffsetX;
+    g_rcCalCard.top = screenY;
+    g_rcCalCard.right = g_rcCalCard.left + (int)(baseW * s);
+    g_rcCalCard.bottom = g_rcCalCard.top + (int)(baseH * s);
+    g_calHasEvent = hasEvent;
+    if (!hasEvent) {
+        g_rcCalEventCard = { 0, 0, 0, 0 };
+    }
 
     HDC hdcScreen = GetDC(NULL);
     HDC hdcMem = CreateCompatibleDC(hdcScreen);
@@ -1460,6 +1595,18 @@ void RenderCalendar(HWND hWnd, BYTE alpha = 255, int overrideX = -1, int overrid
         float fh = flyoutH * s;
         float r = 12.0f * s;
 
+        if (isFlyoutOnLeft) {
+            g_rcCalEventCard.left = screenX + (int)fx;
+            g_rcCalEventCard.top = screenY + (int)fy;
+            g_rcCalEventCard.right = screenX + (int)(fx + fw + arrowW * s);
+            g_rcCalEventCard.bottom = screenY + (int)(fy + fh);
+        } else {
+            g_rcCalEventCard.left = screenX + (int)(fx - arrowW * s);
+            g_rcCalEventCard.top = screenY + (int)fy;
+            g_rcCalEventCard.right = screenX + (int)(fx + fw);
+            g_rcCalEventCard.bottom = screenY + (int)(fy + fh);
+        }
+
         std::wstring cardTitleNP;
         std::wstring cardTitleEN;
         std::wstring cardDescription;
@@ -1643,6 +1790,8 @@ void RenderCalendar(HWND hWnd, BYTE alpha = 255, int overrideX = -1, int overrid
     BLENDFUNCTION blend = { AC_SRC_OVER, 0, alpha, AC_SRC_ALPHA };
 
     UpdateLayeredWindow(hWnd, hdcScreen, &ptDst, &sizeDst, hdcMem, &ptSrc, 0, &blend, ULW_ALPHA);
+    SetWindowPos(hWnd, NULL, screenX, screenY, rawW, rawH,
+                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
 
     SelectObject(hdcMem, hOldBitmap);
     DeleteObject(hBitmap);
@@ -1652,16 +1801,6 @@ void RenderCalendar(HWND hWnd, BYTE alpha = 255, int overrideX = -1, int overrid
 
 LRESULT CALLBACK CalendarWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
-    case WM_ACTIVATE:
-        if (LOWORD(wParam) == WA_INACTIVE) {
-            HideCalendar();
-        }
-        break;
-
-    case WM_KILLFOCUS:
-        HideCalendar();
-        break;
-
     case WM_MOUSEMOVE: {
         int x = LOWORD(lParam);
         int y = HIWORD(lParam);
@@ -1822,6 +1961,18 @@ LRESULT CALLBACK CalendarWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPar
                 }
             }
         }
+    case WM_ACTIVATE:
+        if (LOWORD(wParam) == WA_INACTIVE) {
+            if (GetTickCount() - g_calAnimStartTime > 300) {
+                HideCalendar();
+            }
+        }
+        break;
+
+    case WM_KILLFOCUS:
+        if (GetTickCount() - g_calAnimStartTime > 300) {
+            HideCalendar();
+        }
         break;
 
     case WM_DESTROY:
@@ -1837,6 +1988,7 @@ LRESULT CALLBACK CalendarWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPar
 void HideCalendarImmediate() {
     g_isCalendarOpen = false;
     g_calAnimState = CAL_ANIM_CLOSED;
+    g_lastCalCloseTime = GetTickCount();
     if (g_hCalWnd) {
         KillTimer(g_hCalWnd, 100);
         ShowWindow(g_hCalWnd, SW_HIDE);
@@ -1850,6 +2002,7 @@ void HideCalendar() {
     g_calAnimState = CAL_ANIM_CLOSING;
     g_calAnimStartTime = GetTickCount();
     g_isCalendarOpen = false;
+    g_lastCalCloseTime = GetTickCount();
 
     if (g_hCalWnd) {
         SetTimer(g_hCalWnd, 100, 16, NULL);
@@ -1857,7 +2010,14 @@ void HideCalendar() {
 }
 
 void ShowCalendar(HWND hWidgetWnd) {
-    if (!g_hCalWnd || g_setupMode) return;
+    if (!g_hCalWnd) return;
+    KillTimer(g_hCalWnd, 100);
+    if (g_setupMode) {
+        g_setupMode = false;
+        UpdateWidgetMode();
+        SaveConfig();
+        RenderWidget(g_hWnd);
+    }
     
     int cy, cm, cd, cdow;
     GetCurrentBSDate(cy, cm, cd, cdow);
@@ -1904,16 +2064,14 @@ void ShowCalendar(HWND hWidgetWnd) {
     g_calBaseY = y;
     g_isCalendarOpen = true;
 
-    // Start 60 FPS smooth opening slide & fade animation
-    g_calAnimState = CAL_ANIM_OPENING;
+    g_calAnimState = CAL_ANIM_OPEN;
     g_calAnimStartTime = GetTickCount();
-
-    int startY = g_calBaseY + (int)(18 * g_dpiScale);
-    RenderCalendar(g_hCalWnd, 0, g_calBaseX, startY);
-    ShowWindow(g_hCalWnd, SW_SHOWNOACTIVATE);
+    RenderCalendar(g_hCalWnd, 255, g_calBaseX, g_calBaseY);
+    SetWindowPos(g_hCalWnd, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+    ShowWindow(g_hCalWnd, SW_SHOW);
     SetForegroundWindow(g_hCalWnd);
-
-    SetTimer(g_hCalWnd, 100, 16, NULL);
+    SetFocus(g_hCalWnd);
 }
 
 void ToggleCalendar(HWND hWidgetWnd) {
@@ -1966,10 +2124,71 @@ void RenderWidget(HWND hWnd) {
 
     float s = g_dpiScale;  // Shorthand for scale factor
 
+    Color bgColor(0, 0, 0, 0);
+
     if (g_setupMode) {
         // Adapt background to theme so it's visible on both light and dark taskbars
-        SolidBrush bgBrush(g_isLightTheme ? Color(210, 230, 230, 230) : Color(230, 31, 31, 31));
-        graphics.FillRectangle(&bgBrush, 0, 0, rawWidth, rawHeight);
+        bgColor = g_isLightTheme ? Color(210, 230, 230, 230) : Color(230, 31, 31, 31);
+    } else {
+        BYTE a = (BYTE)g_bgOpacity;
+        switch (g_bgPresetMode) {
+        case 0: // Transparent / Default
+            bgColor = Color(0, 0, 0, 0);
+            break;
+        case 1: { // Custom Color
+            BYTE r = GetRValue(g_bgColorRGB);
+            BYTE g = GetGValue(g_bgColorRGB);
+            BYTE b = GetBValue(g_bgColorRGB);
+            bgColor = Color(a, r, g, b);
+            break;
+        }
+        case 2: // Dark Glass
+            bgColor = Color(a, 31, 31, 31);
+            break;
+        case 3: // Light Glass
+            bgColor = Color(a, 230, 230, 230);
+            break;
+        case 4: // Solid Black
+            bgColor = Color(a, 0, 0, 0);
+            break;
+        case 5: // Solid White
+            bgColor = Color(a, 255, 255, 255);
+            break;
+        case 6: // Red Accent
+            bgColor = Color(a, 180, 40, 40);
+            break;
+        case 7: // Blue Accent
+            bgColor = Color(a, 30, 110, 200);
+            break;
+        }
+    }
+
+    if (bgColor.GetAlpha() > 0) {
+        SolidBrush bgBrush(bgColor);
+        GraphicsPath bgPath;
+        REAL r = 8.0f * s;
+        REAL d = r * 2.0f;
+        REAL w = (REAL)rawWidth;
+        REAL h = (REAL)rawHeight;
+        bgPath.AddArc(0.0f, 0.0f, d, d, 180.0f, 90.0f);
+        bgPath.AddArc(w - d, 0.0f, d, d, 270.0f, 90.0f);
+        bgPath.AddArc(w - d, h - d, d, d, 0.0f, 90.0f);
+        bgPath.AddArc(0.0f, h - d, d, d, 90.0f, 90.0f);
+        bgPath.CloseFigure();
+        graphics.FillPath(&bgBrush, &bgPath);
+    } else {
+        // Invisible hit-test box: Alpha 1 ensures Windows registers mouse clicks (left click to toggle
+        // calendar, right click for context menu, and dragging) across the entire widget bounds,
+        // rather than letting clicks pass through transparent pixels to the taskbar.
+        SolidBrush hitTestBrush(Color(1, 0, 0, 0));
+        graphics.FillRectangle(&hitTestBrush, 0, 0, rawWidth, rawHeight);
+    }
+
+    // Determine text contrast based on background brightness
+    bool useDarkText = g_isLightTheme;
+    if (!g_setupMode && g_bgPresetMode != 0 && bgColor.GetAlpha() > 50) {
+        double luminance = (0.299 * bgColor.GetR() + 0.587 * bgColor.GetG() + 0.114 * bgColor.GetB());
+        useDarkText = (luminance > 140.0);
     }
 
     // Pre-calculate positions to create a tight, sequential layout: [Day] [Gap] [Flag] [Gap] [Date]
@@ -2014,7 +2233,7 @@ void RenderWidget(HWND hWnd) {
         dateX = cx + flagWidth + gap;
 
         // 2. Render Day Box
-        SolidBrush boxBrush(g_isLightTheme ? Color(25, 0, 0, 0) : Color(35, 255, 255, 255));
+        SolidBrush boxBrush(useDarkText ? Color(25, 0, 0, 0) : Color(35, 255, 255, 255));
         GraphicsPath path;
         REAL r = 4.0f * s;
         REAL d = r * 2.0f;
@@ -2026,7 +2245,7 @@ void RenderWidget(HWND hWnd) {
         graphics.FillPath(&boxBrush, &path);
 
         // Draw day text centered in the box
-        SolidBrush dayTextBrush(g_isLightTheme ? Color(255, 20, 20, 20) : Color(255, 255, 255, 255));
+        SolidBrush dayTextBrush(useDarkText ? Color(255, 20, 20, 20) : Color(255, 255, 255, 255));
         StringFormat formatCenter;
         formatCenter.SetAlignment(StringAlignmentCenter);
         formatCenter.SetLineAlignment(StringAlignmentCenter);
@@ -2038,8 +2257,7 @@ void RenderWidget(HWND hWnd) {
         dateX = cx + flagWidth + gap;
     }
 
-    // Use dark text on light theme, white text on dark theme
-    SolidBrush textBrush(g_isLightTheme ? Color(255, 20, 20, 20) : Color(255, 255, 255, 255));
+    SolidBrush textBrush(useDarkText ? Color(255, 20, 20, 20) : Color(255, 255, 255, 255));
 
     // 3. Render Flag
     DrawNepaliFlag(graphics, cx, top, h);
@@ -2049,7 +2267,7 @@ void RenderWidget(HWND hWnd) {
     graphics.DrawString(dateStr.c_str(), -1, &font, dateRect, &formatNear, &textBrush);
 
     // Apply per-pixel alpha channel to OS Window
-    POINT ptDst = { g_xPos + g_currentShiftX, g_yPos + g_currentShiftY };
+    POINT ptDst = { g_xPos, g_yPos };
     SIZE sizeDst = { rawWidth, rawHeight };
     POINT ptSrc = { 0, 0 };
     BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
@@ -2081,52 +2299,412 @@ void RemoveTrayIcon() {
     Shell_NotifyIconW(NIM_DELETE, &g_nid);
 }
 
-void ShowContextMenu(HWND hWnd, POINT pt) {
-    HMENU hMenu = CreatePopupMenu();
-    AppendMenu(hMenu, MF_STRING, 7, L"Open Full Calendar");
-    AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
-    AppendMenu(hMenu, MF_STRING, 1, g_setupMode ? L"Lock Position & Make Transparent" : L"Adjust Position");
-
-    bool startupOn = IsStartupEnabled();
-    AppendMenu(hMenu, MF_STRING | (startupOn ? MF_CHECKED : 0), 3, L"Run at Startup");
-    AppendMenu(hMenu, MF_STRING | (g_showDay ? MF_CHECKED : 0), 5, L"Show Day");
-    AppendMenu(hMenu, MF_STRING, 4, L"Check for Updates");
-    AppendMenu(hMenu, MF_STRING, 6, L"Support / Donate \u2764");
-
-    AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
-    AppendMenu(hMenu, MF_STRING, 2, L"Exit");
-
-    SetForegroundWindow(hWnd);
-    g_isMenuOpen = true;
-    int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hWnd, NULL);
-    g_isMenuOpen = false;
-    // Post a dummy message to ensure the menu dismisses properly when clicking outside
-    PostMessage(hWnd, WM_NULL, 0, 0);
-    DestroyMenu(hMenu);
-
-    if (cmd == 1) {
-        g_setupMode = !g_setupMode;
-        if (g_setupMode && g_isCalendarOpen) {
-            HideCalendar();
-        }
-        SaveConfig();
-        RenderWidget(hWnd);
-    } else if (cmd == 2) {
-        PostQuitMessage(0);
-    } else if (cmd == 3) {
-        SetStartupEnabled(!startupOn);
-    } else if (cmd == 4) {
-        HANDLE hThread = CreateThread(NULL, 0, CheckForUpdateThread, (LPVOID)TRUE, 0, NULL);
-        if (hThread) CloseHandle(hThread);
-    } else if (cmd == 5) {
-        g_showDay = !g_showDay;
-        SaveConfig();
-        RenderWidget(hWnd);
-    } else if (cmd == 6) {
-        ShellExecuteW(NULL, L"open", L"https://tithify.guptaaayush.com.np/#sponsor", NULL, NULL, SW_SHOWNORMAL);
-    } else if (cmd == 7) {
-        ToggleCalendar(hWnd);
+// ── Custom GDI+ Context Menu Engine ──────────────────────────────────────────
+void HideCustomMenu() {
+    if (g_hMenuWnd && IsWindowVisible(g_hMenuWnd)) {
+        ShowWindow(g_hMenuWnd, SW_HIDE);
+        g_isMenuOpen = false;
     }
+}
+
+void RenderCustomMenu(HWND hWnd) {
+    if (!hWnd) return;
+
+    float s = g_dpiScale;
+    int rawWidth = (int)(385 * s);
+    int rawHeight = (int)(260 * s);
+
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = rawWidth;
+    bmi.bmiHeader.biHeight = -rawHeight;  // Top-down
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    void* pBits = NULL;
+    HBITMAP hBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pBits, NULL, 0);
+    HBITMAP hOldBitmap = (HBITMAP)SelectObject(hdcMem, hBitmap);
+
+    Graphics graphics(hdcMem);
+    graphics.SetSmoothingMode(SmoothingModeHighQuality);
+    graphics.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
+    graphics.SetPixelOffsetMode(PixelOffsetModeHighQuality);
+    graphics.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+
+    graphics.Clear(Color(0, 0, 0, 0));
+
+    // ── Main Background Panel Card ───────────────────────────────────────────
+    Color bgCardColor = g_isLightTheme ? Color(248, 245, 245, 248) : Color(245, 24, 24, 28);
+    Color borderColor = g_isLightTheme ? Color(60, 0, 0, 0) : Color(60, 255, 255, 255);
+
+    SolidBrush cardBrush(bgCardColor);
+    GraphicsPath cardPath;
+    REAL r = 14.0f * s;
+    REAL d = r * 2.0f;
+    REAL w = (REAL)rawWidth;
+    REAL h = (REAL)rawHeight;
+    cardPath.AddArc(0.0f, 0.0f, d, d, 180.0f, 90.0f);
+    cardPath.AddArc(w - d, 0.0f, d, d, 270.0f, 90.0f);
+    cardPath.AddArc(w - d, h - d, d, d, 0.0f, 90.0f);
+    cardPath.AddArc(0.0f, h - d, d, d, 90.0f, 90.0f);
+    cardPath.CloseFigure();
+
+    graphics.FillPath(&cardBrush, &cardPath);
+    Pen borderPen(borderColor, 1.5f * s);
+    graphics.DrawPath(&borderPen, &cardPath);
+
+    // ── Header Text ──────────────────────────────────────────────────────────
+    FontFamily fontFamily(L"Segoe UI");
+    Font titleFont(&fontFamily, 14.0f * s, FontStyleBold, UnitPixel);
+    Font subFont(&fontFamily, 10.0f * s, FontStyleBold, UnitPixel);
+
+    Color textColor = g_isLightTheme ? Color(255, 20, 20, 20) : Color(255, 255, 255, 255);
+    Color subTextColor = g_isLightTheme ? Color(180, 80, 80, 80) : Color(180, 180, 180, 180);
+
+    SolidBrush textBrush(textColor);
+    SolidBrush subTextBrush(subTextColor);
+
+    StringFormat formatNear;
+    formatNear.SetAlignment(StringAlignmentNear);
+    formatNear.SetLineAlignment(StringAlignmentCenter);
+
+    StringFormat formatCenter;
+    formatCenter.SetAlignment(StringAlignmentCenter);
+    formatCenter.SetLineAlignment(StringAlignmentCenter);
+
+    StringFormat formatFar;
+    formatFar.SetAlignment(StringAlignmentFar);
+    formatFar.SetLineAlignment(StringAlignmentCenter);
+
+    REAL headerH = 38.0f * s;
+    RectF headerLeftRect(18.0f * s, 0.0f, (w - 36.0f * s) / 2.0f, headerH);
+    RectF headerRightRect(18.0f * s, 0.0f, w - 36.0f * s, headerH);
+
+    graphics.DrawString(L"TITHIFY", -1, &titleFont, headerLeftRect, &formatNear, &textBrush);
+    wchar_t versionStr[64];
+    swprintf(versionStr, 64, L"Nepali Date Widget v%ls", APP_VERSION);
+    graphics.DrawString(versionStr, -1, &subFont, headerRightRect, &formatFar, &subTextBrush);
+
+    // Header horizontal line
+    Color lineHorizColor = g_isLightTheme ? Color(40, 0, 0, 0) : Color(40, 255, 255, 255);
+    Pen lineHorizPen(lineHorizColor, 1.0f * s);
+    graphics.DrawLine(&lineHorizPen, 16.0f * s, headerH, w - 16.0f * s, headerH);
+
+    // ── Center Vertical Divider Line (Theme Changeable) ──────────────────────
+    Color dividerColor = g_isLightTheme ? Color(140, 0, 0, 0) : Color(140, 255, 255, 255);
+    Pen dividerPen(dividerColor, 1.5f * s);
+    graphics.DrawLine(&dividerPen, 172.0f * s, 48.0f * s, 172.0f * s, h - 16.0f * s);
+
+    // ── Left Column: ON / OFF Toggles ────────────────────────────────────────
+    Font labelFont(&fontFamily, 12.5f * s, FontStyleBold, UnitPixel);
+
+    struct ToggleItem {
+        const wchar_t* label;
+        bool state;
+    } toggles[3] = {
+        { L"Run at Startup", IsStartupEnabled() },
+        { L"Show Day", g_showDay },
+        { L"Lock Position", !g_setupMode }
+    };
+
+    for (int i = 0; i < 3; i++) {
+        REAL rowY = (52.0f + i * 62.0f) * s;
+        REAL rowH = 48.0f * s;
+
+        // Label (tight gap before toggle)
+        RectF textRect(16.0f * s, rowY, 102.0f * s, rowH);
+        graphics.DrawString(toggles[i].label, -1, &labelFont, textRect, &formatNear, &textBrush);
+
+        // iOS Toggle Pill Switch
+        REAL pillX = 120.0f * s;
+        REAL pillY = rowY + (rowH - 24.0f * s) / 2.0f;
+        REAL pillW = 44.0f * s;
+        REAL pillH = 24.0f * s;
+        REAL pillR = pillH / 2.0f;
+        REAL pillD = pillR * 2.0f;
+
+        GraphicsPath pillPath;
+        pillPath.AddArc(pillX, pillY, pillD, pillD, 90.0f, 180.0f);
+        pillPath.AddArc(pillX + pillW - pillD, pillY, pillD, pillD, 270.0f, 180.0f);
+        pillPath.CloseFigure();
+
+        Color pillBg = toggles[i].state ? Color(255, 52, 199, 89) : (g_isLightTheme ? Color(255, 200, 200, 204) : Color(255, 90, 90, 95));
+        SolidBrush pillBrush(pillBg);
+        graphics.FillPath(&pillBrush, &pillPath);
+
+        // Circular Knob
+        REAL knobSize = 20.0f * s;
+        REAL knobY = pillY + (pillH - knobSize) / 2.0f;
+        REAL knobX = toggles[i].state ? (pillX + pillW - knobSize - 2.0f * s) : (pillX + 2.0f * s);
+
+        SolidBrush knobBrush(Color(255, 255, 255, 255));
+        graphics.FillEllipse(&knobBrush, knobX, knobY, knobSize, knobSize);
+    }
+
+    // ── Right Column: Compact Action Buttons ─────────────────────────────────
+    FontFamily fontMDL2(L"Segoe MDL2 Assets");
+    Font iconFont(&fontMDL2, 11.0f * s, FontStyleRegular, UnitPixel);
+    Font btnFont(&fontFamily, 11.5f * s, FontStyleBold, UnitPixel);
+
+    struct ActionBtn {
+        const wchar_t* icon;
+        const wchar_t* label;
+        int id;
+    } buttons[5] = {
+        { L"\uE787", L"Open Full Calendar", 7 },
+        { L"\uE790", L"Background Color", 101 },
+        { L"\uE72C", L"Check for Updates", 4 },
+        { L"\uEB51", L"Support / Donate", 6 },
+        { L"\uE711", L"Exit Widget", 2 }
+    };
+
+    for (int i = 0; i < 5; i++) {
+        REAL btnX = 184.0f * s;
+        REAL btnY = (48.0f + i * 39.0f) * s;
+        REAL btnW = 185.0f * s;
+        REAL btnH = 33.0f * s;
+
+        bool isHovered = (g_menuHoverIndex == (3 + i));
+
+        Color btnBg;
+        if (g_isLightTheme) {
+            btnBg = isHovered ? Color(60, 0, 0, 0) : Color(25, 0, 0, 0);
+        } else {
+            btnBg = isHovered ? Color(80, 255, 255, 255) : Color(35, 255, 255, 255);
+        }
+
+        SolidBrush btnBrush(btnBg);
+        GraphicsPath btnPath;
+        REAL br = 6.0f * s;
+        REAL bd = br * 2.0f;
+        btnPath.AddArc(btnX, btnY, bd, bd, 180.0f, 90.0f);
+        btnPath.AddArc(btnX + btnW - bd, btnY, bd, bd, 270.0f, 90.0f);
+        btnPath.AddArc(btnX + btnW - bd, btnY + btnH - bd, bd, bd, 0.0f, 90.0f);
+        btnPath.AddArc(btnX, btnY + btnH - bd, bd, bd, 90.0f, 90.0f);
+        btnPath.CloseFigure();
+
+        graphics.FillPath(&btnBrush, &btnPath);
+
+        // Icon (Segoe MDL2 Assets glyph)
+        RectF iconRect(btnX + 6.0f * s, btnY, 20.0f * s, btnH);
+        graphics.DrawString(buttons[i].icon, -1, &iconFont, iconRect, &formatCenter, &textBrush);
+
+        // Text Label
+        RectF btnTextRect(btnX + 28.0f * s, btnY, btnW - 32.0f * s, btnH);
+        graphics.DrawString(buttons[i].label, -1, &btnFont, btnTextRect, &formatNear, &textBrush);
+    }
+
+    // Apply per-pixel alpha channel to OS Window
+    POINT ptDst = { g_menuXPos, g_menuYPos };
+    SIZE sizeDst = { rawWidth, rawHeight };
+    POINT ptSrc = { 0, 0 };
+    BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+
+    UpdateLayeredWindow(hWnd, hdcScreen, &ptDst, &sizeDst, hdcMem, &ptSrc, 0, &blend, ULW_ALPHA);
+
+    SelectObject(hdcMem, hOldBitmap);
+    DeleteObject(hBitmap);
+    DeleteDC(hdcMem);
+    ReleaseDC(NULL, hdcScreen);
+}
+
+LRESULT CALLBACK CustomMenuWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+        RenderCustomMenu(hWnd);
+        EndPaint(hWnd, &ps);
+        return 0;
+    }
+
+    case WM_MOUSEMOVE: {
+        POINT pt;
+        GetCursorPos(&pt);
+        int localX = pt.x - g_menuXPos;
+        int localY = pt.y - g_menuYPos;
+
+        float s = g_dpiScale;
+        int newHover = -1;
+
+        if (localX >= (int)(14 * s) && localX <= (int)(168 * s)) {
+            if (localY >= (int)(48 * s) && localY < (int)(108 * s)) newHover = 0;
+            else if (localY >= (int)(108 * s) && localY < (int)(168 * s)) newHover = 1;
+            else if (localY >= (int)(168 * s) && localY <= (int)(228 * s)) newHover = 2;
+        } else if (localX >= (int)(176 * s) && localX <= (int)(375 * s)) {
+            if (localY >= (int)(48 * s) && localY < (int)(84 * s)) newHover = 3;
+            else if (localY >= (int)(88 * s) && localY < (int)(124 * s)) newHover = 4;
+            else if (localY >= (int)(128 * s) && localY < (int)(164 * s)) newHover = 5;
+            else if (localY >= (int)(168 * s) && localY < (int)(204 * s)) newHover = 6;
+            else if (localY >= (int)(208 * s) && localY <= (int)(244 * s)) newHover = 7;
+        }
+
+        if (newHover != g_menuHoverIndex) {
+            g_menuHoverIndex = newHover;
+            RenderCustomMenu(hWnd);
+        }
+        break;
+    }
+
+    case WM_LBUTTONUP: {
+        POINT pt;
+        GetCursorPos(&pt);
+        int localX = pt.x - g_menuXPos;
+        int localY = pt.y - g_menuYPos;
+
+        float s = g_dpiScale;
+        int clicked = -1;
+
+        if (localX >= (int)(14 * s) && localX <= (int)(168 * s)) {
+            if (localY >= (int)(48 * s) && localY < (int)(108 * s)) clicked = 0;
+            else if (localY >= (int)(108 * s) && localY < (int)(168 * s)) clicked = 1;
+            else if (localY >= (int)(168 * s) && localY <= (int)(228 * s)) clicked = 2;
+        } else if (localX >= (int)(176 * s) && localX <= (int)(375 * s)) {
+            if (localY >= (int)(48 * s) && localY < (int)(84 * s)) clicked = 3;
+            else if (localY >= (int)(88 * s) && localY < (int)(124 * s)) clicked = 4;
+            else if (localY >= (int)(128 * s) && localY < (int)(164 * s)) clicked = 5;
+            else if (localY >= (int)(168 * s) && localY < (int)(204 * s)) clicked = 6;
+            else if (localY >= (int)(208 * s) && localY <= (int)(244 * s)) clicked = 7;
+        }
+
+        if (clicked == 0) {
+            SetStartupEnabled(!IsStartupEnabled());
+            RenderCustomMenu(hWnd);
+        } else if (clicked == 1) {
+            g_showDay = !g_showDay;
+            UpdateWidgetMode();
+            SaveConfig();
+            RenderWidget(g_hWnd);
+            RenderCustomMenu(hWnd);
+        } else if (clicked == 2) {
+            g_setupMode = !g_setupMode;
+            if (g_setupMode && g_isCalendarOpen) HideCalendar();
+            UpdateWidgetMode();
+            SaveConfig();
+            RenderWidget(g_hWnd);
+            RenderCustomMenu(hWnd);
+        } else if (clicked == 3) {
+            HideCustomMenu();
+            ShowCalendar(g_hWnd);
+        } else if (clicked == 4) {
+            HideCustomMenu();
+            PickCustomBackgroundColor(g_hWnd);
+        } else if (clicked == 5) {
+            HideCustomMenu();
+            HANDLE hThread = CreateThread(NULL, 0, CheckForUpdateThread, (LPVOID)TRUE, 0, NULL);
+            if (hThread) CloseHandle(hThread);
+        } else if (clicked == 6) {
+            HideCustomMenu();
+            ShellExecuteW(NULL, L"open", L"https://tithify.guptaaayush.com.np/#donate", NULL, NULL, SW_SHOWNORMAL);
+        } else if (clicked == 7) {
+            HideCustomMenu();
+            PostQuitMessage(0);
+        }
+        break;
+    }
+
+    case WM_KILLFOCUS:
+        HideCustomMenu();
+        break;
+
+    case WM_ACTIVATE:
+        if (LOWORD(wParam) == WA_INACTIVE) {
+            HideCustomMenu();
+        }
+        break;
+
+    case WM_KEYDOWN:
+        if (wParam == VK_ESCAPE) {
+            HideCustomMenu();
+        }
+        break;
+
+    default:
+        return DefWindowProc(hWnd, msg, wParam, lParam);
+    }
+    return 0;
+}
+
+void ShowCustomMenu(HWND hWndOwner, POINT pt) {
+    if (!g_hMenuWnd) return;
+
+    float s = g_dpiScale;
+    int menuW = (int)(385 * s);
+    int menuH = (int)(260 * s);
+
+    HMONITOR hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof(mi) };
+    GetMonitorInfo(hMon, &mi);
+
+    RECT rcWidget = { 0 };
+    if (hWndOwner && IsWindow(hWndOwner)) {
+        GetWindowRect(hWndOwner, &rcWidget);
+    }
+
+    int x = 0, y = 0;
+
+    if (hWndOwner && PtInRect(&rcWidget, pt)) {
+        // Right-clicked directly on the Tithify widget: center horizontally and float 10px above it
+        int widgetCenterX = rcWidget.left + (rcWidget.right - rcWidget.left) / 2;
+        x = widgetCenterX - menuW / 2;
+        y = rcWidget.top - menuH - (int)(10 * s);
+
+        if (y < mi.rcWork.top) {
+            y = rcWidget.bottom + (int)(10 * s);
+        }
+    } else {
+        // Right-clicked on tray icon (in taskbar notification area or overflow flyout)
+        // Find the root window under the cursor (e.g. overflow flyout or taskbar)
+        HWND hUnder = WindowFromPoint(pt);
+        HWND hRoot = hUnder ? GetAncestor(hUnder, GA_ROOT) : NULL;
+        RECT rcAnchor = { pt.x, pt.y, pt.x, pt.y };
+        if (hRoot && hRoot != g_hWnd && hRoot != g_hMenuWnd && hRoot != g_hCalWnd) {
+            GetWindowRect(hRoot, &rcAnchor);
+        }
+
+        x = pt.x - menuW / 2;
+        // Position cleanly above the entire anchor box (overflow flyout or taskbar)
+        y = rcAnchor.top - menuH - (int)(10 * s);
+
+        if (y < mi.rcWork.top) {
+            // If placed too high, position below the anchor box
+            y = rcAnchor.bottom + (int)(10 * s);
+        }
+    }
+
+    // Clamp inside vertical screen bounds
+    if (y + menuH > mi.rcWork.bottom) {
+        y = mi.rcWork.bottom - menuH - (int)(8 * s);
+    }
+    if (y < mi.rcWork.top) {
+        y = mi.rcWork.top + (int)(8 * s);
+    }
+
+    // Clamp inside horizontal screen bounds
+    if (x + menuW > mi.rcWork.right - (int)(10 * s)) {
+        x = mi.rcWork.right - menuW - (int)(10 * s);
+    }
+    if (x < mi.rcWork.left + (int)(10 * s)) {
+        x = mi.rcWork.left + (int)(10 * s);
+    }
+
+    g_menuXPos = x;
+    g_menuYPos = y;
+    g_menuHoverIndex = -1;
+    g_isMenuOpen = true;
+
+    SetWindowPos(g_hMenuWnd, HWND_TOPMOST, g_menuXPos, g_menuYPos, menuW, menuH, SWP_NOACTIVATE);
+    RenderCustomMenu(g_hMenuWnd);
+    ShowWindow(g_hMenuWnd, SW_SHOWNOACTIVATE);
+    SetForegroundWindow(g_hMenuWnd);
+    SetFocus(g_hMenuWnd);
+}
+
+void ShowContextMenu(HWND hWnd, POINT pt) {
+    ShowCustomMenu(hWnd, pt);
 }
 
 // ── Win32 Message Loop Engine ────────────────────────────────────────────────
@@ -2152,85 +2730,69 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
             }
         } else if (wParam == 2) {
-            TaskbarSyncState syncState = GetTaskbarSyncState();
-            bool fullscreen = IsFullscreenAppRunning();
+            // ── Click-outside-to-close for calendar ──
+            if (g_isCalendarOpen && g_hCalWnd) {
+                // Ignore clicks during initial opening grace period (300ms)
+                if (GetTickCount() - g_calAnimStartTime > 300) {
+                    if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) ||
+                        (GetAsyncKeyState(VK_RBUTTON) & 0x8000) ||
+                        (GetAsyncKeyState(VK_MBUTTON) & 0x8000)) {
+                        POINT cursor;
+                        GetCursorPos(&cursor);
+                        RECT rcWidget;
+                        GetWindowRect(hWnd, &rcWidget);
+                        // Close if click is outside both the calendar cards and the widget
+                        if (!IsPointInCalendar(cursor) && !PtInRect(&rcWidget, cursor)) {
+                            HideCalendar();
+                        }
+                    }
+                }
+            }
 
-            // Fullscreen hide rule: hide during fullscreen apps UNLESS auto-hide taskbar is revealed by hovering
-            bool shouldHideFullscreen = fullscreen && (syncState.isAutoHide ? syncState.isCompletelyHidden : true);
-
-            if (shouldHideFullscreen && !g_hiddenForFullscreen) {
-                g_hiddenForFullscreen = true;
-                if (g_isCalendarOpen) HideCalendarImmediate();
-                ShowWindow(hWnd, SW_HIDE);
-            } else if (!shouldHideFullscreen && g_hiddenForFullscreen) {
-                g_hiddenForFullscreen = false;
-                if (!g_hiddenForTaskbar) {
+            // ── Fullscreen App Detection & Auto-Hide ──
+            static DWORD s_lastFullscreenCheckTime = 0;
+            DWORD nowTicks = GetTickCount();
+            if (!g_setupMode && (nowTicks - s_lastFullscreenCheckTime >= 200)) {
+                s_lastFullscreenCheckTime = nowTicks;
+                bool fullscreen = IsFullscreenAppRunning();
+                if (fullscreen && !g_hiddenForFullscreen) {
+                    g_hiddenForFullscreen = true;
+                    if (g_isCalendarOpen) HideCalendarImmediate();
+                    if (g_isMenuOpen) HideCustomMenu();
+                    ShowWindow(hWnd, SW_HIDE);
+                } else if (!fullscreen && g_hiddenForFullscreen) {
+                    g_hiddenForFullscreen = false;
                     ShowWindow(hWnd, SW_SHOWNOACTIVATE);
                     RenderWidget(hWnd);
                 }
             }
 
-            // ── Pixel-Accurate Taskbar Auto-Hide Animation Sync ────────
-            if (!g_setupMode && syncState.isAutoHide) {
-                if (syncState.isCompletelyHidden) {
-                    if (!g_hiddenForTaskbar) {
-                        g_hiddenForTaskbar = true;
-                        if (g_isCalendarOpen) HideCalendarImmediate();
-                        ShowWindow(hWnd, SW_HIDE);
-                    }
-                } else {
-                    bool wasHidden = g_hiddenForTaskbar;
-                    g_hiddenForTaskbar = false;
-
-                    bool shiftChanged = (g_currentShiftX != syncState.shiftX || g_currentShiftY != syncState.shiftY);
-                    g_currentShiftX = syncState.shiftX;
-                    g_currentShiftY = syncState.shiftY;
-
-                    if ((wasHidden || !IsWindowVisible(hWnd)) && !shouldHideFullscreen) {
-                        ShowWindow(hWnd, SW_SHOWNOACTIVATE);
-                        RenderWidget(hWnd);
-                    } else if (shiftChanged && !shouldHideFullscreen && IsWindowVisible(hWnd)) {
-                        SetWindowPos(hWnd, NULL, g_xPos + g_currentShiftX, g_yPos + g_currentShiftY, 0, 0,
-                                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
-                    }
+            // ── Ensure window stays visible & un-minimized if not hidden for fullscreen ──
+            if (!g_hiddenForFullscreen) {
+                if (IsIconic(hWnd)) {
+                    ShowWindow(hWnd, SW_RESTORE);
                 }
-            } else {
-                if (g_currentShiftX != 0 || g_currentShiftY != 0) {
-                    g_currentShiftX = 0;
-                    g_currentShiftY = 0;
-                    if (!shouldHideFullscreen && IsWindowVisible(hWnd)) {
-                        SetWindowPos(hWnd, NULL, g_xPos, g_yPos, 0, 0,
-                                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
-                    }
-                }
-                if (g_hiddenForTaskbar) {
-                    g_hiddenForTaskbar = false;
-                    if (!shouldHideFullscreen) {
-                        ShowWindow(hWnd, SW_SHOWNOACTIVATE);
-                        RenderWidget(hWnd);
-                    }
+                if (!IsWindowVisible(hWnd)) {
+                    ShowWindow(hWnd, SW_SHOWNOACTIVATE);
+                    RenderWidget(hWnd);
                 }
             }
 
-            // ── 3. Re-assert TOPMOST safely without fighting Lenovo Vantage / Custom Toolbars ──
+            // ── Z-Order Management & Taskbar Sync (50ms responsive check) ──
             static DWORD s_lastZCheckTime = 0;
-            DWORD nowTicks = GetTickCount();
-            if (!shouldHideFullscreen && !g_hiddenForTaskbar && !g_isMenuOpen && (nowTicks - s_lastZCheckTime >= 3000)) {
-                s_lastZCheckTime = nowTicks;
-
-                // Check if Windows Explorer's Taskbar (Shell_TrayWnd) is specifically above us
-                HWND hTaskbar = FindWindow(L"Shell_TrayWnd", NULL);
-                bool isTaskbarAbove = false;
-                if (hTaskbar) {
-                    for (HWND h = GetWindow(hWnd, GW_HWNDPREV); h != NULL; h = GetWindow(h, GW_HWNDPREV)) {
-                        if (h == hTaskbar) {
-                            isTaskbarAbove = true;
-                            break;
+            if (!g_hiddenForFullscreen && !g_isMenuOpen && !g_isCalendarOpen) {
+                bool needZOrderUpdate = (nowTicks - s_lastZCheckTime >= 50);
+                if (!needZOrderUpdate) {
+                    HWND hTaskbar = FindWindowW(L"Shell_TrayWnd", NULL);
+                    if (hTaskbar) {
+                        HWND hPrev = GetWindow(hWnd, GW_HWNDPREV);
+                        if (hPrev == hTaskbar) {
+                            needZOrderUpdate = true;
                         }
                     }
                 }
-
-                if (isTaskbarAbove) {
+                if (needZOrderUpdate) {
+                    s_lastZCheckTime = nowTicks;
                     SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
                                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
                 }
@@ -2238,26 +2800,74 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         break;
 
-    // ── THE KEY FIX: Prevent taskbar thumbnail previews from hiding us ────
-    case WM_SHOWWINDOW:
-        if (wParam == FALSE && lParam == SW_PARENTCLOSING) {
-            return 0;  // Block the hide — stay visible
+    // ── Block minimization completely (e.g. from Show Desktop / Win+D / 3-finger swipe) ──
+    case WM_SYSCOMMAND:
+        if ((wParam & 0xFFF0) == SC_MINIMIZE) {
+            return 0;  // Block SC_MINIMIZE!
         }
         return DefWindowProc(hWnd, msg, wParam, lParam);
 
+    case WM_SIZE:
+        if (wParam == SIZE_MINIMIZED && !g_hiddenForFullscreen) {
+            ShowWindow(hWnd, SW_RESTORE);
+            return 0;
+        }
+        return DefWindowProc(hWnd, msg, wParam, lParam);
+
+    // ── Prevent Windows / Explorer / Show Desktop / Aero Peek from hiding us ──
+    case WM_SHOWWINDOW:
+        if (wParam == FALSE) {
+            if (!g_hiddenForFullscreen) {
+                PostMessage(hWnd, WM_USER + 99, 0, 0);
+                return 0;  // Stay visible unless explicitly hidden for fullscreen
+            }
+        }
+        return DefWindowProc(hWnd, msg, wParam, lParam);
+
+    case WM_WINDOWPOSCHANGING: {
+        WINDOWPOS* wp = (WINDOWPOS*)lParam;
+        if (wp && !g_hiddenForFullscreen) {
+            wp->flags &= ~SWP_HIDEWINDOW;
+            // Prevent Explorer from moving window to iconic off-screen (-32000, -32000)
+            if (wp->x <= -30000 || wp->y <= -30000) {
+                wp->x = g_xPos;
+                wp->y = g_yPos;
+                wp->flags |= SWP_NOMOVE;
+            }
+        }
+        return DefWindowProc(hWnd, msg, wParam, lParam);
+    }
+
+    case WM_USER + 99:
+        if (!g_hiddenForFullscreen) {
+            if (IsIconic(hWnd)) ShowWindow(hWnd, SW_RESTORE);
+            ShowWindow(hWnd, SW_SHOWNOACTIVATE);
+            SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+            RenderWidget(hWnd);
+        }
+        break;
+
     case WM_LBUTTONDOWN:
         if (g_setupMode) {
+            // Setup mode: capture mouse for dragging
             g_isDragging = true;
             g_hasDragged = false;
             SetCapture(hWnd);
             GetCursorPos(&g_dragStart);
             g_dragStart.x -= g_xPos;
             g_dragStart.y -= g_yPos;
+        } else {
+            // Locked mode: open/close calendar on press
+            // Don't SetCapture — WS_EX_NOACTIVATE window can drop WM_LBUTTONUP
+            if (GetTickCount() - g_lastCalCloseTime > 250) {
+                ToggleCalendar(hWnd);
+            }
         }
         break;
 
     case WM_MOUSEMOVE:
-        if (g_isDragging) {
+        if (g_isDragging && g_setupMode) {
             POINT pt;
             GetCursorPos(&pt);
             int newX = pt.x - g_dragStart.x;
@@ -2275,10 +2885,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (g_isDragging) {
             g_isDragging = false;
             ReleaseCapture();
+            UpdateWidgetMode();
             SaveConfig();
-        } else {
-            // Only toggle calendar when locked in position (!g_setupMode)
-            if (!g_setupMode) {
+            if (!g_hasDragged) {
                 if (GetTickCount() - g_lastCalCloseTime > 250) {
                     ToggleCalendar(hWnd);
                 }
@@ -2421,6 +3030,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wcCal.hCursor = LoadCursor(NULL, IDC_ARROW);
     RegisterClassEx(&wcCal);
 
+    // Register Custom Menu Popup Class
+    WNDCLASSEX wcMenu = { 0 };
+    wcMenu.cbSize = sizeof(WNDCLASSEX);
+    wcMenu.lpfnWndProc = CustomMenuWndProc;
+    wcMenu.hInstance = hInstance;
+    wcMenu.lpszClassName = L"NepaliMenuPopupClass";
+    wcMenu.hCursor = LoadCursor(NULL, IDC_ARROW);
+    RegisterClassEx(&wcMenu);
+
     HWND hTaskbar = FindWindow(L"Shell_TrayWnd", NULL);
     
     // Bounds check to ensure the widget isn't lost off-screen due to old configs
@@ -2456,14 +3074,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         L"NepaliCalendarPopupClass",
         L"Nepali Calendar",
         WS_POPUP,
-        0, 0, (int)(824 * g_dpiScale), (int)(440 * g_dpiScale),
+        0, 0, (int)(420 * g_dpiScale), (int)(440 * g_dpiScale),
         NULL, NULL, hInstance, NULL
     );
 
-    // ── Set the Taskbar as the OWNER of this window ─────────────────────
-    if (hTaskbar) {
-        SetWindowLongPtr(g_hWnd, GWLP_HWNDPARENT, (LONG_PTR)hTaskbar);
-    }
+    // Create custom menu popup window
+    g_hMenuWnd = CreateWindowEx(
+        WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+        L"NepaliMenuPopupClass",
+        L"Nepali Menu",
+        WS_POPUP,
+        0, 0, (int)(385 * g_dpiScale), (int)(260 * g_dpiScale),
+        NULL, NULL, hInstance, NULL
+    );
+
+    // ── Apply Taskbar vs Desktop mode z-order & parenting ──
+    UpdateWidgetMode();
+
+    // ── Real-time shell event hook for instant foreground / desktop changes ──
+    g_hEventHook = SetWinEventHook(
+        EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+        NULL, WinEventProc, 0, 0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+    );
 
     ShowWindow(g_hWnd, SW_SHOWNOACTIVATE);
     RenderWidget(g_hWnd);
@@ -2478,9 +3111,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         DispatchMessage(&msg);
     }
 
+    if (g_hEventHook) {
+        UnhookWinEvent(g_hEventHook);
+        g_hEventHook = NULL;
+    }
+
     if (g_hCalWnd) {
         DestroyWindow(g_hCalWnd);
         g_hCalWnd = NULL;
+    }
+    if (g_hMenuWnd) {
+        DestroyWindow(g_hMenuWnd);
+        g_hMenuWnd = NULL;
     }
 
     GdiplusShutdown(g_gdiplusToken);
