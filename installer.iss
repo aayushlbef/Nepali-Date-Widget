@@ -2,11 +2,11 @@
 ; Compiles to a single Setup.exe that installs the widget
 
 #define MyAppName "Tithify"
-#define MyAppVersion "3.6.2"
+#define MyAppVersion "3.6.3"
 #define MyAppPublisher "Aayush"
 #define MyAppURL "https://github.com/aayushlbef/Tithify"
 #define MyAppExeName "Tithify.exe"
-#define MyAppWebsite "https://tithify.guptaaayush.com.np/"
+#define MyAppWebsite "https://aayushlbef.github.io/Tithify/"
 
 [Setup]
 ; Unique App ID - DO NOT change this after first release

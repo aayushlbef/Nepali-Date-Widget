@@ -24,7 +24,7 @@
 using namespace Gdiplus;
 
 // ── App Version ──────────────────────────────────────────────────────────────
-#define APP_VERSION L"3.6.2"
+#define APP_VERSION L"3.6.3"
 #define GITHUB_REPO_API L"/repos/aayushlbef/Tithify/releases/latest"
 #define GITHUB_RELEASE_URL L"https://github.com/aayushlbef/Tithify/releases/tag/"
 #define WM_UPDATE_AVAILABLE      (WM_USER + 2)
@@ -48,11 +48,13 @@ bool g_isMenuOpen = false;
 bool g_showDay = true;
 
 // DPI scale factor (1.0 = 96 DPI, 1.25 = 120 DPI, 1.5 = 144 DPI, etc.)
-
-// DPI scale factor (1.0 = 96 DPI, 1.25 = 120 DPI, 1.5 = 144 DPI, etc.)
 float g_dpiScale = 1.0f;
 
 bool g_hiddenForFullscreen = false;
+bool g_hiddenForTaskbar = false;
+bool g_isOnTaskbar = true;
+int g_currentShiftX = 0;
+int g_currentShiftY = 0;
 
 // ── Background Customization State ───────────────────────────────────────────
 int g_bgPresetMode = 0;            // 0 = Transparent (Default), 1 = Custom Color, 2 = Dark Glass, 3 = Light Glass, 4 = Solid Black, 5 = Solid White, 6 = Red Accent, 7 = Blue Accent
@@ -438,37 +440,233 @@ bool IsFullscreenAppRunning() {
     return true;
 }
 
+// ── Desktop Host Window Resolver ──────────────────────────────────────────────
+HWND GetDesktopHostWindow() {
+    HWND hProgman = FindWindowW(L"Progman", NULL);
+    if (hProgman && FindWindowExW(hProgman, NULL, L"SHELLDLL_DefView", NULL)) {
+        return hProgman;
+    }
+    HWND hWorker = NULL;
+    while ((hWorker = FindWindowExW(NULL, hWorker, L"WorkerW", NULL)) != NULL) {
+        if (FindWindowExW(hWorker, NULL, L"SHELLDLL_DefView", NULL)) {
+            return hWorker;
+        }
+    }
+    return hProgman ? hProgman : GetShellWindow();
+}
+
 // ── Real-Time Shell / Foreground Event Hook ──────────────────────────────────
 HWINEVENTHOOK g_hEventHook = NULL;
 
 void CALLBACK WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hwnd,
                            LONG idObject, LONG idChild, DWORD dwEventThread, DWORD dwmsEventTime) {
-    if (!g_hWnd || !IsWindow(g_hWnd) || g_hiddenForFullscreen) return;
+    if (!g_hWnd || !IsWindow(g_hWnd) || g_hiddenForFullscreen || g_hiddenForTaskbar) return;
 
     // When foreground window or focus changes across the system (Start, Search, Taskbar, Show Desktop),
-    // immediately ensure Tithify is not iconic and sits on top of the taskbar.
+    // immediately ensure Tithify is not iconic and sits in the proper z-order.
     if (IsIconic(g_hWnd)) {
         ShowWindow(g_hWnd, SW_RESTORE);
     }
     if (!g_isMenuOpen && !g_isCalendarOpen) {
-        SetWindowPos(g_hWnd, HWND_TOPMOST, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+        if (g_setupMode || g_isOnTaskbar) {
+            SetWindowPos(g_hWnd, HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+        } else {
+            HWND hDesktop = GetDesktopHostWindow();
+            if (hDesktop && (HWND)GetWindowLongPtr(g_hWnd, GWLP_HWNDPARENT) != hDesktop) {
+                SetWindowLongPtr(g_hWnd, GWLP_HWNDPARENT, (LONG_PTR)hDesktop);
+            }
+            SetWindowPos(g_hWnd, HWND_BOTTOM, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+        }
     }
+}
+
+// ── Auto-Hide Taskbar Sync & Animation State ─────────────────────────────────
+struct TaskbarSyncState {
+    bool isAutoHide = false;
+    bool isCompletelyHidden = false;
+    int shiftX = 0;
+    int shiftY = 0;
+};
+
+TaskbarSyncState GetTaskbarSyncState() {
+    TaskbarSyncState state;
+    APPBARDATA abd = { sizeof(APPBARDATA) };
+    UINT abState = (UINT)SHAppBarMessage(ABM_GETSTATE, &abd);
+    state.isAutoHide = (abState & ABS_AUTOHIDE) != 0;
+    if (!state.isAutoHide) return state;
+
+    HWND hTaskbar = FindWindowW(L"Shell_TrayWnd", NULL);
+    if (!hTaskbar) return state;
+
+    RECT rcTaskbar;
+    if (!GetWindowRect(hTaskbar, &rcTaskbar)) return state;
+
+    HMONITOR hMon = MonitorFromWindow(hTaskbar, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof(mi) };
+    GetMonitorInfo(hMon, &mi);
+
+    static int s_expandedHeight = 48;
+    static int s_expandedWidth = 48;
+
+    int tbHeight = rcTaskbar.bottom - rcTaskbar.top;
+    int tbWidth = rcTaskbar.right - rcTaskbar.left;
+    if (tbHeight > 10) s_expandedHeight = tbHeight;
+    if (tbWidth > 10) s_expandedWidth = tbWidth;
+
+    // Bottom Taskbar:
+    if (rcTaskbar.bottom >= mi.rcMonitor.bottom - 10) {
+        int normalTop = mi.rcMonitor.bottom - s_expandedHeight;
+        state.shiftY = rcTaskbar.top - normalTop;
+        if (state.shiftY < 0) state.shiftY = 0;
+        if (tbHeight <= 4 || rcTaskbar.top >= mi.rcMonitor.bottom - 4) {
+            state.isCompletelyHidden = true;
+        }
+    }
+    // Top Taskbar:
+    else if (rcTaskbar.top <= mi.rcMonitor.top + 10) {
+        int normalBottom = mi.rcMonitor.top + s_expandedHeight;
+        state.shiftY = rcTaskbar.bottom - normalBottom;
+        if (state.shiftY > 0) state.shiftY = 0;
+        if (tbHeight <= 4 || rcTaskbar.bottom <= mi.rcMonitor.top + 4) {
+            state.isCompletelyHidden = true;
+        }
+    }
+    // Right Taskbar:
+    else if (rcTaskbar.right >= mi.rcMonitor.right - 10) {
+        int normalLeft = mi.rcMonitor.right - s_expandedWidth;
+        state.shiftX = rcTaskbar.left - normalLeft;
+        if (state.shiftX < 0) state.shiftX = 0;
+        if (tbWidth <= 4 || rcTaskbar.left >= mi.rcMonitor.right - 4) {
+            state.isCompletelyHidden = true;
+        }
+    }
+    // Left Taskbar:
+    else if (rcTaskbar.left <= mi.rcMonitor.left + 10) {
+        int normalRight = mi.rcMonitor.left + s_expandedWidth;
+        state.shiftX = rcTaskbar.right - normalRight;
+        if (state.shiftX > 0) state.shiftX = 0;
+        if (tbWidth <= 4 || rcTaskbar.right <= mi.rcMonitor.left + 4) {
+            state.isCompletelyHidden = true;
+        }
+    }
+
+    return state;
+}
+
+// ── Taskbar vs Desktop Location Auto-Detection ───────────────────────────────
+bool IsPositionOnTaskbar(int x, int y, int w, int h) {
+    RECT rcWidget = { x, y, x + w, y + h };
+    POINT center = { x + w / 2, y + h / 2 };
+
+    HMONITOR hMon = MonitorFromRect(&rcWidget, MONITOR_DEFAULTTONEAREST);
+    if (!hMon) return false;
+
+    MONITORINFO mi = { sizeof(mi) };
+    if (!GetMonitorInfo(hMon, &mi)) return false;
+
+    HWND hTaskbar = FindWindowW(L"Shell_TrayWnd", NULL);
+    RECT rcTaskbar = { 0 };
+    bool taskbarFound = false;
+    if (hTaskbar) {
+        taskbarFound = (GetWindowRect(hTaskbar, &rcTaskbar) != 0);
+    }
+
+    int tbHeight = rcTaskbar.bottom - rcTaskbar.top;
+    int tbWidth = rcTaskbar.right - rcTaskbar.left;
+
+    RECT rcTaskbarArea = { 0 };
+
+    // 1. Standard taskbar: Monitor work area differs from monitor rect
+    if (mi.rcWork.bottom < mi.rcMonitor.bottom) {
+        rcTaskbarArea = { mi.rcMonitor.left, mi.rcWork.bottom, mi.rcMonitor.right, mi.rcMonitor.bottom };
+    } else if (mi.rcWork.top > mi.rcMonitor.top) {
+        rcTaskbarArea = { mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right, mi.rcWork.top };
+    } else if (mi.rcWork.left > mi.rcMonitor.left) {
+        rcTaskbarArea = { mi.rcMonitor.left, mi.rcMonitor.top, mi.rcWork.left, mi.rcMonitor.bottom };
+    } else if (mi.rcWork.right < mi.rcMonitor.right) {
+        rcTaskbarArea = { mi.rcWork.right, mi.rcMonitor.top, mi.rcMonitor.right, mi.rcMonitor.bottom };
+    } else if (taskbarFound) {
+        // 2. Auto-hide taskbar (work area equals monitor rect)
+        if (tbHeight > 10 && tbWidth > 10) {
+            rcTaskbarArea = rcTaskbar;
+        } else {
+            // Taskbar is collapsed auto-hide bar: synthesize expanded rect at the monitor edge
+            int defH = (int)(48 * g_dpiScale);
+            if (rcTaskbar.bottom >= mi.rcMonitor.bottom - 10) {
+                rcTaskbarArea = { mi.rcMonitor.left, mi.rcMonitor.bottom - defH, mi.rcMonitor.right, mi.rcMonitor.bottom };
+            } else if (rcTaskbar.top <= mi.rcMonitor.top + 10) {
+                rcTaskbarArea = { mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right, mi.rcMonitor.top + defH };
+            } else if (rcTaskbar.right >= mi.rcMonitor.right - 10) {
+                rcTaskbarArea = { mi.rcMonitor.right - defH, mi.rcMonitor.top, mi.rcMonitor.right, mi.rcMonitor.bottom };
+            } else if (rcTaskbar.left <= mi.rcMonitor.left + 10) {
+                rcTaskbarArea = { mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.left + defH, mi.rcMonitor.bottom };
+            }
+        }
+    } else {
+        // 3. Fallback: bottom 48px of primary monitor
+        int defH = (int)(48 * g_dpiScale);
+        rcTaskbarArea = { mi.rcMonitor.left, mi.rcMonitor.bottom - defH, mi.rcMonitor.right, mi.rcMonitor.bottom };
+    }
+
+    // Test if widget center point or >30% overlap lies in taskbar area
+    if (PtInRect(&rcTaskbarArea, center)) {
+        return true;
+    }
+
+    RECT rcIntersect;
+    if (IntersectRect(&rcIntersect, &rcWidget, &rcTaskbarArea)) {
+        int intersectArea = (rcIntersect.right - rcIntersect.left) * (rcIntersect.bottom - rcIntersect.top);
+        int widgetArea = w * h;
+        if (intersectArea > widgetArea / 3) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void UpdateWidgetMode() {
     if (!g_hWnd) return;
+    int winW = (int)((g_showDay ? 190 : 155) * g_dpiScale);
+    int winH = (int)(48 * g_dpiScale);
 
-    // Set Taskbar as owner so Windows Window Manager naturally keeps Tithify above the taskbar.
+    g_isOnTaskbar = IsPositionOnTaskbar(g_xPos, g_yPos, winW, winH);
+
     // In Win32, an owned popup window is always placed above its owner in Z-order.
+    // - When on taskbar: owner is Shell_TrayWnd so Tithify stays naturally above the taskbar.
+    // - When on desktop: owner is Progman / WorkerW (desktop host) so Tithify stays directly
+    //   above the desktop wallpaper and never disappears when "Show Desktop" (Win+D) is invoked.
     HWND hTaskbar = FindWindowW(L"Shell_TrayWnd", NULL);
-    if (hTaskbar) {
-        SetWindowLongPtr(g_hWnd, GWLP_HWNDPARENT, (LONG_PTR)hTaskbar);
+    HWND hDesktop = GetDesktopHostWindow();
+
+    if (g_isOnTaskbar) {
+        if (hTaskbar) SetWindowLongPtr(g_hWnd, GWLP_HWNDPARENT, (LONG_PTR)hTaskbar);
+        else SetWindowLongPtr(g_hWnd, GWLP_HWNDPARENT, 0);
+    } else {
+        if (hDesktop) SetWindowLongPtr(g_hWnd, GWLP_HWNDPARENT, (LONG_PTR)hDesktop);
+        else SetWindowLongPtr(g_hWnd, GWLP_HWNDPARENT, 0);
     }
 
-    // Always maintain HWND_TOPMOST so Tithify stays visible over the taskbar and desktop
-    SetWindowPos(g_hWnd, HWND_TOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+    LONG_PTR exStyle = GetWindowLongPtr(g_hWnd, GWL_EXSTYLE);
+    if (g_setupMode || g_isOnTaskbar) {
+        // Setup mode (unlocked for dragging) or taskbar mode: keep TOPMOST
+        if (!(exStyle & WS_EX_TOPMOST)) {
+            SetWindowLongPtr(g_hWnd, GWL_EXSTYLE, exStyle | WS_EX_TOPMOST);
+        }
+        SetWindowPos(g_hWnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+    } else {
+        // Locked on desktop: behave like a desktop icon (bottom of window stack)
+        if (exStyle & WS_EX_TOPMOST) {
+            SetWindowLongPtr(g_hWnd, GWL_EXSTYLE, exStyle & ~WS_EX_TOPMOST);
+        }
+        SetWindowPos(g_hWnd, HWND_NOTOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+        SetWindowPos(g_hWnd, HWND_BOTTOM, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+    }
 }
 
 
@@ -2012,12 +2210,6 @@ void HideCalendar() {
 void ShowCalendar(HWND hWidgetWnd) {
     if (!g_hCalWnd) return;
     KillTimer(g_hCalWnd, 100);
-    if (g_setupMode) {
-        g_setupMode = false;
-        UpdateWidgetMode();
-        SaveConfig();
-        RenderWidget(g_hWnd);
-    }
     
     int cy, cm, cd, cdow;
     GetCurrentBSDate(cy, cm, cd, cdow);
@@ -2267,7 +2459,7 @@ void RenderWidget(HWND hWnd) {
     graphics.DrawString(dateStr.c_str(), -1, &font, dateRect, &formatNear, &textBrush);
 
     // Apply per-pixel alpha channel to OS Window
-    POINT ptDst = { g_xPos, g_yPos };
+    POINT ptDst = { g_xPos + g_currentShiftX, g_yPos + g_currentShiftY };
     SIZE sizeDst = { rawWidth, rawHeight };
     POINT ptSrc = { 0, 0 };
     BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
@@ -2707,8 +2899,557 @@ void ShowContextMenu(HWND hWnd, POINT pt) {
     ShowCustomMenu(hWnd, pt);
 }
 
+// ── Modern Fluent Dialog Engine ──────────────────────────────────────────────
+enum ModernDialogType {
+    MODERN_DLG_SUCCESS = 0,
+    MODERN_DLG_UPDATE  = 1,
+    MODERN_DLG_ERROR   = 2,
+    MODERN_DLG_INFO    = 3
+};
+
+struct ModernDialogState {
+    bool isOpen = false;
+    int result = IDCANCEL;
+    int hoverBtn = 0; // 0=none, 1=primary, 2=secondary, 99=close
+    bool isDragging = false;
+    POINT dragStart = { 0, 0 };
+    int dlgX = 0;
+    int dlgY = 0;
+    int dlgW = 0;
+    int dlgH = 0;
+
+    wchar_t title[128] = { 0 };
+    wchar_t message[512] = { 0 };
+    wchar_t primaryBtn[64] = { 0 };
+    wchar_t secondaryBtn[64] = { 0 };
+    bool hasSecondary = false;
+    int dialogType = 0;
+} g_dlgState;
+
+void RenderModernDialog(HWND hWnd) {
+    if (!hWnd) return;
+
+    int rawW = g_dlgState.dlgW;
+    int rawH = g_dlgState.dlgH;
+    float s = g_dpiScale;
+    bool isLight = g_isLightTheme;
+
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = rawW;
+    bmi.bmiHeader.biHeight = -rawH;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    void* pBits = NULL;
+    HBITMAP hBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pBits, NULL, 0);
+    HBITMAP hOldBitmap = (HBITMAP)SelectObject(hdcMem, hBitmap);
+
+    Graphics g(hdcMem);
+    g.SetSmoothingMode(SmoothingModeHighQuality);
+    g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
+    g.SetPixelOffsetMode(PixelOffsetModeHighQuality);
+    g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+
+    g.Clear(Color(0, 0, 0, 0));
+
+    REAL w = (REAL)rawW;
+    REAL h = (REAL)rawH;
+
+    // ── Load Application Logo ──
+    HICON hIcon = (HICON)LoadImageW(GetModuleHandle(NULL), MAKEINTRESOURCEW(1),
+                                    IMAGE_ICON, (int)(64 * s), (int)(64 * s), LR_DEFAULTCOLOR);
+    if (!hIcon) {
+        wchar_t exePath[MAX_PATH];
+        GetModuleFileNameW(NULL, exePath, MAX_PATH);
+        wchar_t* lastSlash = wcsrchr(exePath, L'\\');
+        if (lastSlash) {
+            *(lastSlash + 1) = L'\0';
+            wcscat_s(exePath, L"icon.ico");
+            hIcon = (HICON)LoadImageW(NULL, exePath, IMAGE_ICON, (int)(64 * s), (int)(64 * s), LR_LOADFROMFILE);
+        }
+    }
+    Bitmap* pLogo = hIcon ? Bitmap::FromHICON(hIcon) : NULL;
+
+    // ── Main Card Background (Solid high-contrast graphite in dark mode) ──
+    Color bgCardColor = isLight ? Color(255, 255, 255, 255) : Color(255, 26, 27, 32);
+    Color borderColor = isLight ? Color(60, 0, 0, 0) : Color(75, 255, 255, 255);
+
+    GraphicsPath cardPath;
+    REAL r = 16.0f * s;
+    REAL d = r * 2.0f;
+    cardPath.AddArc(0.0f, 0.0f, d, d, 180.0f, 90.0f);
+    cardPath.AddArc(w - d, 0.0f, d, d, 270.0f, 90.0f);
+    cardPath.AddArc(w - d, h - d, d, d, 0.0f, 90.0f);
+    cardPath.AddArc(0.0f, h - d, d, d, 90.0f, 90.0f);
+    cardPath.CloseFigure();
+
+    SolidBrush cardBrush(bgCardColor);
+    g.FillPath(&cardBrush, &cardPath);
+    Pen borderPen(borderColor, 1.5f * s);
+    g.DrawPath(&borderPen, &cardPath);
+
+    // ── Header Bar ──
+    REAL headerH = 42.0f * s;
+    REAL hLogoSize = 22.0f * s;
+    REAL hLogoX = 18.0f * s;
+    REAL hLogoY = (headerH - hLogoSize) / 2.0f;
+    if (pLogo && pLogo->GetWidth() > 0) {
+        g.DrawImage(pLogo, RectF(hLogoX, hLogoY, hLogoSize, hLogoSize));
+    }
+
+    FontFamily fontFamily(L"Segoe UI");
+    Font brandFont(&fontFamily, 13.0f * s, FontStyleBold, UnitPixel);
+    Color brandColor = isLight ? Color(255, 20, 20, 20) : Color(255, 255, 255, 255);
+    SolidBrush brandBrush(brandColor);
+
+    StringFormat fmtNearCenter;
+    fmtNearCenter.SetAlignment(StringAlignmentNear);
+    fmtNearCenter.SetLineAlignment(StringAlignmentCenter);
+
+    RectF brandRect(hLogoX + hLogoSize + 10.0f * s, 0.0f, 200.0f * s, headerH);
+    g.DrawString(L"Tithify", -1, &brandFont, brandRect, &fmtNearCenter, &brandBrush);
+
+    // Close button [X]
+    REAL closeBtnSize = 26.0f * s;
+    REAL closeBtnX = w - 16.0f * s - closeBtnSize;
+    REAL closeBtnY = (headerH - closeBtnSize) / 2.0f;
+    if (g_dlgState.hoverBtn == 99) {
+        SolidBrush hoverCloseBrush(isLight ? Color(30, 0, 0, 0) : Color(45, 255, 255, 255));
+        g.FillEllipse(&hoverCloseBrush, closeBtnX, closeBtnY, closeBtnSize, closeBtnSize);
+    }
+    Font closeFont(&fontFamily, 12.0f * s, FontStyleRegular, UnitPixel);
+    StringFormat fmtCenter;
+    fmtCenter.SetAlignment(StringAlignmentCenter);
+    fmtCenter.SetLineAlignment(StringAlignmentCenter);
+    RectF closeRect(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize);
+    SolidBrush closeBrush(isLight ? Color(180, 80, 80, 80) : Color(220, 200, 200, 200));
+    g.DrawString(L"\u2715", -1, &closeFont, closeRect, &fmtCenter, &closeBrush);
+
+    Color divColor = isLight ? Color(30, 0, 0, 0) : Color(35, 255, 255, 255);
+    Pen divPen(divColor, 1.0f * s);
+    g.DrawLine(&divPen, 16.0f * s, headerH, w - 16.0f * s, headerH);
+
+    // ── Body Area: App Logo + Status Badge ──
+    REAL iconBoxX = 22.0f * s;
+    REAL iconBoxY = headerH + 20.0f * s;
+    REAL iconBoxSize = 54.0f * s;
+
+    if (pLogo && pLogo->GetWidth() > 0) {
+        g.DrawImage(pLogo, RectF(iconBoxX, iconBoxY, iconBoxSize, iconBoxSize));
+    }
+
+    // Corner Status Badge Overlay
+    REAL chkSize = 22.0f * s;
+    REAL chkX = iconBoxX + iconBoxSize - chkSize + 3.0f * s;
+    REAL chkY = iconBoxY + iconBoxSize - chkSize + 3.0f * s;
+
+    Color badgeColor = (g_dlgState.dialogType == MODERN_DLG_SUCCESS)
+        ? Color(255, 16, 185, 129) // emerald
+        : ((g_dlgState.dialogType == MODERN_DLG_UPDATE) ? Color(255, 220, 38, 38) : Color(255, 239, 68, 68)); // red or amber-red
+
+    SolidBrush chkBgBrush(badgeColor);
+    g.FillEllipse(&chkBgBrush, chkX, chkY, chkSize, chkSize);
+    Pen chkRingPen(bgCardColor, 2.2f * s);
+    g.DrawEllipse(&chkRingPen, chkX, chkY, chkSize, chkSize);
+
+    REAL ccx = chkX + chkSize / 2.0f;
+    REAL ccy = chkY + chkSize / 2.0f;
+    if (g_dlgState.dialogType == MODERN_DLG_SUCCESS) {
+        // White Checkmark
+        Pen checkPen(Color(255, 255, 255, 255), 2.2f * s);
+        checkPen.SetStartCap(LineCapRound);
+        checkPen.SetEndCap(LineCapRound);
+        checkPen.SetLineJoin(LineJoinRound);
+        PointF pt1(ccx - 4.5f * s, ccy + 0.0f * s);
+        PointF pt2(ccx - 1.0f * s, ccy + 3.5f * s);
+        PointF pt3(ccx + 4.5f * s, ccy - 3.0f * s);
+        PointF pts[3] = { pt1, pt2, pt3 };
+        g.DrawLines(&checkPen, pts, 3);
+    } else if (g_dlgState.dialogType == MODERN_DLG_UPDATE) {
+        // White Download Arrow
+        Pen arrowPen(Color(255, 255, 255, 255), 2.0f * s);
+        arrowPen.SetStartCap(LineCapRound);
+        arrowPen.SetEndCap(LineCapRound);
+        g.DrawLine(&arrowPen, ccx, ccy - 4.5f * s, ccx, ccy + 3.5f * s);
+        PointF h1(ccx - 3.0f * s, ccy + 1.0f * s);
+        PointF h2(ccx, ccy + 3.8f * s);
+        PointF h3(ccx + 3.0f * s, ccy + 1.0f * s);
+        PointF hPts[3] = { h1, h2, h3 };
+        g.DrawLines(&arrowPen, hPts, 3);
+    } else {
+        // White Cross
+        Pen crossPen(Color(255, 255, 255, 255), 2.0f * s);
+        crossPen.SetStartCap(LineCapRound);
+        crossPen.SetEndCap(LineCapRound);
+        REAL cr = 3.5f * s;
+        g.DrawLine(&crossPen, ccx - cr, ccy - cr, ccx + cr, ccy + cr);
+        g.DrawLine(&crossPen, ccx + cr, ccy - cr, ccx - cr, ccy + cr);
+    }
+
+    // ── Typography: Large, Bold, Ultra-High Contrast ──
+    REAL textX = iconBoxX + iconBoxSize + 18.0f * s;
+    REAL textW = w - textX - 22.0f * s;
+
+    Font titleFont(&fontFamily, 17.5f * s, FontStyleBold, UnitPixel);
+    Color titleColor = isLight ? Color(255, 15, 15, 15) : Color(255, 255, 255, 255);
+    SolidBrush titleBrush(titleColor);
+    RectF titleRect(textX, iconBoxY - 2.0f * s, textW, 26.0f * s);
+    g.DrawString(g_dlgState.title, -1, &titleFont, titleRect, &fmtNearCenter, &titleBrush);
+
+    Font msgFont(&fontFamily, 13.5f * s, FontStyleRegular, UnitPixel);
+    // 92% luminance in dark mode (bright and crystal clear), dark slate in light mode
+    Color msgColor = isLight ? Color(255, 60, 64, 72) : Color(255, 228, 232, 238);
+    SolidBrush msgBrush(msgColor);
+
+    StringFormat fmtWrap;
+    fmtWrap.SetAlignment(StringAlignmentNear);
+    fmtWrap.SetLineAlignment(StringAlignmentNear);
+    RectF msgRect(textX, iconBoxY + 28.0f * s, textW, h - (iconBoxY + 28.0f * s) - 58.0f * s);
+    g.DrawString(g_dlgState.message, -1, &msgFont, msgRect, &fmtWrap, &msgBrush);
+
+    // ── Bottom Action Buttons ──
+    REAL btnH = 38.0f * s;
+    REAL btnY = h - 18.0f * s - btnH;
+    REAL primaryW = g_dlgState.hasSecondary ? (118.0f * s) : (100.0f * s);
+    REAL primaryX = w - 18.0f * s - primaryW;
+
+    Font btnFont(&fontFamily, 13.5f * s, FontStyleBold, UnitPixel);
+
+    if (g_dlgState.hasSecondary) {
+        REAL secW = 94.0f * s;
+        REAL secX = primaryX - 10.0f * s - secW;
+
+        GraphicsPath secPath;
+        REAL secR = 9.0f * s;
+        REAL secD = secR * 2.0f;
+        secPath.AddArc(secX, btnY, secD, secD, 180.0f, 90.0f);
+        secPath.AddArc(secX + secW - secD, btnY, secD, secD, 270.0f, 90.0f);
+        secPath.AddArc(secX + secW - secD, btnY + btnH - secD, secD, secD, 0.0f, 90.0f);
+        secPath.AddArc(secX, btnY + btnH - secD, secD, secD, 90.0f, 90.0f);
+        secPath.CloseFigure();
+
+        Color secBg = (g_dlgState.hoverBtn == 2)
+            ? (isLight ? Color(35, 0, 0, 0) : Color(45, 255, 255, 255))
+            : (isLight ? Color(15, 0, 0, 0) : Color(20, 255, 255, 255));
+        SolidBrush secBrush(secBg);
+        g.FillPath(&secBrush, &secPath);
+
+        Pen secBorder(isLight ? Color(50, 0, 0, 0) : Color(50, 255, 255, 255), 1.0f * s);
+        g.DrawPath(&secBorder, &secPath);
+
+        RectF secTextRect(secX, btnY, secW, btnH);
+        SolidBrush secTextBrush(isLight ? Color(255, 30, 30, 30) : Color(255, 240, 240, 240));
+        g.DrawString(g_dlgState.secondaryBtn, -1, &btnFont, secTextRect, &fmtCenter, &secTextBrush);
+    }
+
+    GraphicsPath primPath;
+    REAL primR = 9.0f * s;
+    REAL primD = primR * 2.0f;
+    primPath.AddArc(primaryX, btnY, primD, primD, 180.0f, 90.0f);
+    primPath.AddArc(primaryX + primaryW - primD, btnY, primD, primD, 270.0f, 90.0f);
+    primPath.AddArc(primaryX + primaryW - primD, btnY + btnH - primD, primD, primD, 0.0f, 90.0f);
+    primPath.AddArc(primaryX, btnY + btnH - primD, primD, primD, 90.0f, 90.0f);
+    primPath.CloseFigure();
+
+    Color primBg = (g_dlgState.hoverBtn == 1)
+        ? Color(255, 239, 68, 68)  // hover lighter red
+        : Color(255, 220, 38, 38);  // Tithify brand red
+    SolidBrush primBrush(primBg);
+    g.FillPath(&primBrush, &primPath);
+
+    RectF primTextRect(primaryX, btnY, primaryW, btnH);
+    SolidBrush primTextBrush(Color(255, 255, 255, 255));
+    g.DrawString(g_dlgState.primaryBtn, -1, &btnFont, primTextRect, &fmtCenter, &primTextBrush);
+
+    POINT ptDst = { g_dlgState.dlgX, g_dlgState.dlgY };
+    SIZE sizeDst = { rawW, rawH };
+    POINT ptSrc = { 0, 0 };
+    BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+
+    UpdateLayeredWindow(hWnd, hdcScreen, &ptDst, &sizeDst, hdcMem, &ptSrc, 0, &blend, ULW_ALPHA);
+
+    if (pLogo) delete pLogo;
+    if (hIcon) DestroyIcon(hIcon);
+
+    SelectObject(hdcMem, hOldBitmap);
+    DeleteObject(hBitmap);
+    DeleteDC(hdcMem);
+    ReleaseDC(NULL, hdcScreen);
+}
+
+LRESULT CALLBACK ModernDialogWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_SETCURSOR: {
+        POINT pt;
+        GetCursorPos(&pt);
+        int lx = pt.x - g_dlgState.dlgX;
+        int ly = pt.y - g_dlgState.dlgY;
+
+        float s = g_dpiScale;
+        int w = g_dlgState.dlgW;
+        int h = g_dlgState.dlgH;
+        int btnH = (int)(38 * s);
+        int btnY = h - (int)(18 * s) - btnH;
+        int primaryW = g_dlgState.hasSecondary ? (int)(118 * s) : (int)(100 * s);
+        int primaryX = w - (int)(18 * s) - primaryW;
+
+        bool onButton = false;
+        if (lx >= primaryX && lx <= primaryX + primaryW && ly >= btnY && ly <= btnY + btnH) {
+            onButton = true;
+        } else if (g_dlgState.hasSecondary) {
+            int secW = (int)(94 * s);
+            int secX = primaryX - (int)(10 * s) - secW;
+            if (lx >= secX && lx <= secX + secW && ly >= btnY && ly <= btnY + btnH) {
+                onButton = true;
+            }
+        }
+        int closeBtnSize = (int)(26 * s);
+        int closeBtnX = w - (int)(16 * s) - closeBtnSize;
+        int closeBtnY = (int)((42 * s - closeBtnSize) / 2);
+        if (lx >= closeBtnX && lx <= closeBtnX + closeBtnSize && ly >= closeBtnY && ly <= closeBtnY + closeBtnSize) {
+            onButton = true;
+        }
+
+        if (onButton) {
+            SetCursor(LoadCursor(NULL, IDC_HAND));
+            return TRUE;
+        }
+        SetCursor(LoadCursor(NULL, IDC_ARROW));
+        return TRUE;
+    }
+
+    case WM_MOUSEMOVE: {
+        POINT pt;
+        GetCursorPos(&pt);
+        int lx = pt.x - g_dlgState.dlgX;
+        int ly = pt.y - g_dlgState.dlgY;
+
+        if (g_dlgState.isDragging) {
+            g_dlgState.dlgX = pt.x - g_dlgState.dragStart.x;
+            g_dlgState.dlgY = pt.y - g_dlgState.dragStart.y;
+            RenderModernDialog(hWnd);
+            break;
+        }
+
+        float s = g_dpiScale;
+        int w = g_dlgState.dlgW;
+        int h = g_dlgState.dlgH;
+        int btnH = (int)(38 * s);
+        int btnY = h - (int)(18 * s) - btnH;
+        int primaryW = g_dlgState.hasSecondary ? (int)(118 * s) : (int)(100 * s);
+        int primaryX = w - (int)(18 * s) - primaryW;
+
+        int newHover = 0;
+        if (lx >= primaryX && lx <= primaryX + primaryW && ly >= btnY && ly <= btnY + btnH) {
+            newHover = 1;
+        } else if (g_dlgState.hasSecondary) {
+            int secW = (int)(94 * s);
+            int secX = primaryX - (int)(10 * s) - secW;
+            if (lx >= secX && lx <= secX + secW && ly >= btnY && ly <= btnY + btnH) {
+                newHover = 2;
+            }
+        }
+        int closeBtnSize = (int)(26 * s);
+        int closeBtnX = w - (int)(16 * s) - closeBtnSize;
+        int closeBtnY = (int)((42 * s - closeBtnSize) / 2);
+        if (lx >= closeBtnX && lx <= closeBtnX + closeBtnSize && ly >= closeBtnY && ly <= closeBtnY + closeBtnSize) {
+            newHover = 99;
+        }
+
+        if (newHover != g_dlgState.hoverBtn) {
+            g_dlgState.hoverBtn = newHover;
+            RenderModernDialog(hWnd);
+        }
+        break;
+    }
+
+    case WM_LBUTTONDOWN: {
+        POINT pt;
+        GetCursorPos(&pt);
+        int lx = pt.x - g_dlgState.dlgX;
+        int ly = pt.y - g_dlgState.dlgY;
+
+        float s = g_dpiScale;
+        int w = g_dlgState.dlgW;
+        int h = g_dlgState.dlgH;
+        int btnH = (int)(38 * s);
+        int btnY = h - (int)(18 * s) - btnH;
+        int primaryW = g_dlgState.hasSecondary ? (int)(118 * s) : (int)(100 * s);
+        int primaryX = w - (int)(18 * s) - primaryW;
+
+        bool onBtn = (lx >= primaryX && lx <= primaryX + primaryW && ly >= btnY && ly <= btnY + btnH);
+        if (!onBtn && g_dlgState.hasSecondary) {
+            int secW = (int)(94 * s);
+            int secX = primaryX - (int)(10 * s) - secW;
+            if (lx >= secX && lx <= secX + secW && ly >= btnY && ly <= btnY + btnH) onBtn = true;
+        }
+        int closeBtnSize = (int)(26 * s);
+        int closeBtnX = w - (int)(16 * s) - closeBtnSize;
+        int closeBtnY = (int)((42 * s - closeBtnSize) / 2);
+        if (lx >= closeBtnX && lx <= closeBtnX + closeBtnSize && ly >= closeBtnY && ly <= closeBtnY + closeBtnSize) onBtn = true;
+
+        if (!onBtn) {
+            g_dlgState.isDragging = true;
+            SetCapture(hWnd);
+            g_dlgState.dragStart.x = pt.x - g_dlgState.dlgX;
+            g_dlgState.dragStart.y = pt.y - g_dlgState.dlgY;
+        }
+        break;
+    }
+
+    case WM_LBUTTONUP: {
+        if (g_dlgState.isDragging) {
+            g_dlgState.isDragging = false;
+            ReleaseCapture();
+        }
+
+        POINT pt;
+        GetCursorPos(&pt);
+        int lx = pt.x - g_dlgState.dlgX;
+        int ly = pt.y - g_dlgState.dlgY;
+
+        float s = g_dpiScale;
+        int w = g_dlgState.dlgW;
+        int h = g_dlgState.dlgH;
+        int btnH = (int)(38 * s);
+        int btnY = h - (int)(18 * s) - btnH;
+        int primaryW = g_dlgState.hasSecondary ? (int)(118 * s) : (int)(100 * s);
+        int primaryX = w - (int)(18 * s) - primaryW;
+
+        if (lx >= primaryX && lx <= primaryX + primaryW && ly >= btnY && ly <= btnY + btnH) {
+            g_dlgState.result = g_dlgState.hasSecondary ? IDYES : IDOK;
+            g_dlgState.isOpen = false;
+        } else if (g_dlgState.hasSecondary) {
+            int secW = (int)(94 * s);
+            int secX = primaryX - (int)(10 * s) - secW;
+            if (lx >= secX && lx <= secX + secW && ly >= btnY && ly <= btnY + btnH) {
+                g_dlgState.result = IDNO;
+                g_dlgState.isOpen = false;
+            }
+        }
+        int closeBtnSize = (int)(26 * s);
+        int closeBtnX = w - (int)(16 * s) - closeBtnSize;
+        int closeBtnY = (int)((42 * s - closeBtnSize) / 2);
+        if (lx >= closeBtnX && lx <= closeBtnX + closeBtnSize && ly >= closeBtnY && ly <= closeBtnY + closeBtnSize) {
+            g_dlgState.result = g_dlgState.hasSecondary ? IDCANCEL : IDOK;
+            g_dlgState.isOpen = false;
+        }
+        break;
+    }
+
+    case WM_DESTROY:
+        g_dlgState.isOpen = false;
+        break;
+
+    default:
+        return DefWindowProcW(hWnd, msg, wParam, lParam);
+    }
+    return 0;
+}
+
+int ShowModernDialog(HWND hWndParent,
+                     const wchar_t* title,
+                     const wchar_t* message,
+                     ModernDialogType type = MODERN_DLG_SUCCESS,
+                     const wchar_t* primaryBtnText = L"OK",
+                     const wchar_t* secondaryBtnText = NULL) {
+    HINSTANCE hInst = GetModuleHandle(NULL);
+    static bool s_classRegistered = false;
+    if (!s_classRegistered) {
+        WNDCLASSEXW wc = { sizeof(WNDCLASSEXW) };
+        wc.lpfnWndProc = ModernDialogWndProc;
+        wc.hInstance = hInst;
+        wc.lpszClassName = L"NepaliModernDialogClass";
+        RegisterClassExW(&wc);
+        s_classRegistered = true;
+    }
+
+    float s = g_dpiScale;
+    g_dlgState.dlgW = (int)(440 * s);
+    g_dlgState.dlgH = (int)((secondaryBtnText != NULL ? 235 : 215) * s);
+    g_dlgState.dialogType = type;
+    g_dlgState.hoverBtn = 0;
+    g_dlgState.isDragging = false;
+    g_dlgState.hasSecondary = (secondaryBtnText != NULL);
+    wcscpy_s(g_dlgState.title, title ? title : L"Tithify");
+    wcscpy_s(g_dlgState.message, message ? message : L"");
+    wcscpy_s(g_dlgState.primaryBtn, primaryBtnText ? primaryBtnText : L"OK");
+    if (secondaryBtnText) wcscpy_s(g_dlgState.secondaryBtn, secondaryBtnText);
+    else g_dlgState.secondaryBtn[0] = 0;
+
+    HMONITOR hMon = MonitorFromWindow(hWndParent ? hWndParent : (g_hWnd ? g_hWnd : GetDesktopWindow()), MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof(mi) };
+    GetMonitorInfo(hMon, &mi);
+
+    g_dlgState.dlgX = mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - g_dlgState.dlgW) / 2;
+    g_dlgState.dlgY = mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - g_dlgState.dlgH) / 2;
+
+    HWND hDlg = CreateWindowExW(
+        WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+        L"NepaliModernDialogClass",
+        L"Tithify Dialog",
+        WS_POPUP,
+        g_dlgState.dlgX, g_dlgState.dlgY, g_dlgState.dlgW, g_dlgState.dlgH,
+        NULL, NULL, hInst, NULL
+    );
+
+    if (!hDlg) return IDCANCEL;
+
+    g_dlgState.isOpen = true;
+    g_dlgState.result = g_dlgState.hasSecondary ? IDCANCEL : IDOK;
+
+    RenderModernDialog(hDlg);
+    ShowWindow(hDlg, SW_SHOWNOACTIVATE);
+    SetForegroundWindow(hDlg);
+    SetFocus(hDlg);
+
+    if (hWndParent && IsWindow(hWndParent)) {
+        EnableWindow(hWndParent, FALSE);
+    }
+
+    MSG msg;
+    while (g_dlgState.isOpen && GetMessage(&msg, NULL, 0, 0)) {
+        if (msg.message == WM_KEYDOWN) {
+            if (msg.wParam == VK_ESCAPE) {
+                g_dlgState.result = g_dlgState.hasSecondary ? IDCANCEL : IDOK;
+                g_dlgState.isOpen = false;
+                break;
+            } else if (msg.wParam == VK_RETURN || msg.wParam == VK_SPACE) {
+                g_dlgState.result = g_dlgState.hasSecondary ? IDYES : IDOK;
+                g_dlgState.isOpen = false;
+                break;
+            }
+        }
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+
+    if (hWndParent && IsWindow(hWndParent)) {
+        EnableWindow(hWndParent, TRUE);
+        SetForegroundWindow(hWndParent);
+    }
+
+    DestroyWindow(hDlg);
+    return g_dlgState.result;
+}
+
 // ── Win32 Message Loop Engine ────────────────────────────────────────────────
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    static UINT s_uTaskbarRestartMsg = 0;
+    if (!s_uTaskbarRestartMsg) {
+        s_uTaskbarRestartMsg = RegisterWindowMessageW(L"TaskbarCreated");
+    }
+    if (msg == s_uTaskbarRestartMsg && s_uTaskbarRestartMsg != 0) {
+        AddTrayIcon(hWnd);
+        UpdateWidgetMode();
+        return 0;
+    }
+
     switch (msg) {
     case WM_CREATE:
         AddTrayIcon(hWnd);
@@ -2749,26 +3490,75 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
             }
 
-            // ── Fullscreen App Detection & Auto-Hide ──
+            // ── Fullscreen App Detection (throttled to 200ms) ──
             static DWORD s_lastFullscreenCheckTime = 0;
+            static bool s_cachedFullscreen = false;
             DWORD nowTicks = GetTickCount();
             if (!g_setupMode && (nowTicks - s_lastFullscreenCheckTime >= 200)) {
                 s_lastFullscreenCheckTime = nowTicks;
-                bool fullscreen = IsFullscreenAppRunning();
-                if (fullscreen && !g_hiddenForFullscreen) {
-                    g_hiddenForFullscreen = true;
-                    if (g_isCalendarOpen) HideCalendarImmediate();
-                    if (g_isMenuOpen) HideCustomMenu();
-                    ShowWindow(hWnd, SW_HIDE);
-                } else if (!fullscreen && g_hiddenForFullscreen) {
-                    g_hiddenForFullscreen = false;
+                s_cachedFullscreen = IsFullscreenAppRunning();
+            }
+
+            TaskbarSyncState syncState = GetTaskbarSyncState();
+            bool fullscreen = s_cachedFullscreen;
+
+            // Fullscreen hide rule: hide during fullscreen apps UNLESS auto-hide taskbar is revealed by hovering
+            bool shouldHideFullscreen = fullscreen && (syncState.isAutoHide ? syncState.isCompletelyHidden : true);
+
+            if (shouldHideFullscreen && !g_hiddenForFullscreen) {
+                g_hiddenForFullscreen = true;
+                if (g_isCalendarOpen) HideCalendarImmediate();
+                if (g_isMenuOpen) HideCustomMenu();
+                ShowWindow(hWnd, SW_HIDE);
+            } else if (!shouldHideFullscreen && g_hiddenForFullscreen) {
+                g_hiddenForFullscreen = false;
+                if (!g_hiddenForTaskbar) {
                     ShowWindow(hWnd, SW_SHOWNOACTIVATE);
                     RenderWidget(hWnd);
                 }
             }
 
-            // ── Ensure window stays visible & un-minimized if not hidden for fullscreen ──
-            if (!g_hiddenForFullscreen) {
+            // ── Pixel-Accurate Taskbar Auto-Hide Animation Sync ──
+            if (!g_setupMode && g_isOnTaskbar && syncState.isAutoHide) {
+                if (syncState.isCompletelyHidden) {
+                    if (!g_hiddenForTaskbar) {
+                        g_hiddenForTaskbar = true;
+                        if (g_isCalendarOpen) HideCalendarImmediate();
+                        if (g_isMenuOpen) HideCustomMenu();
+                        ShowWindow(hWnd, SW_HIDE);
+                    }
+                } else {
+                    bool wasHidden = g_hiddenForTaskbar;
+                    g_hiddenForTaskbar = false;
+
+                    bool shiftChanged = (g_currentShiftX != syncState.shiftX || g_currentShiftY != syncState.shiftY);
+                    g_currentShiftX = syncState.shiftX;
+                    g_currentShiftY = syncState.shiftY;
+
+                    if ((wasHidden || !IsWindowVisible(hWnd)) && !shouldHideFullscreen) {
+                        ShowWindow(hWnd, SW_SHOWNOACTIVATE);
+                        RenderWidget(hWnd);
+                    } else if (shiftChanged && !shouldHideFullscreen && IsWindowVisible(hWnd)) {
+                        SetWindowPos(hWnd, NULL, g_xPos + g_currentShiftX, g_yPos + g_currentShiftY, 0, 0,
+                                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+                    }
+                }
+            } else {
+                if (g_currentShiftX != 0 || g_currentShiftY != 0) {
+                    g_currentShiftX = 0;
+                    g_currentShiftY = 0;
+                    if (!shouldHideFullscreen && IsWindowVisible(hWnd)) {
+                        SetWindowPos(hWnd, NULL, g_xPos, g_yPos, 0, 0,
+                                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+                    }
+                }
+                if (g_hiddenForTaskbar) {
+                    g_hiddenForTaskbar = false;
+                }
+            }
+
+            // ── Ensure window stays visible & un-minimized if not hidden for fullscreen or auto-hide taskbar ──
+            if (!shouldHideFullscreen && !g_hiddenForTaskbar) {
                 if (IsIconic(hWnd)) {
                     ShowWindow(hWnd, SW_RESTORE);
                 }
@@ -2780,21 +3570,23 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
             // ── Z-Order Management & Taskbar Sync (50ms responsive check) ──
             static DWORD s_lastZCheckTime = 0;
-            if (!g_hiddenForFullscreen && !g_isMenuOpen && !g_isCalendarOpen) {
-                bool needZOrderUpdate = (nowTicks - s_lastZCheckTime >= 50);
-                if (!needZOrderUpdate) {
-                    HWND hTaskbar = FindWindowW(L"Shell_TrayWnd", NULL);
-                    if (hTaskbar) {
-                        HWND hPrev = GetWindow(hWnd, GW_HWNDPREV);
-                        if (hPrev == hTaskbar) {
-                            needZOrderUpdate = true;
+            if (!shouldHideFullscreen && !g_hiddenForTaskbar && !g_isMenuOpen && !g_isCalendarOpen) {
+                if (g_setupMode || g_isOnTaskbar) {
+                    bool needZOrderUpdate = (nowTicks - s_lastZCheckTime >= 50);
+                    if (!needZOrderUpdate) {
+                        HWND hTaskbar = FindWindowW(L"Shell_TrayWnd", NULL);
+                        if (hTaskbar) {
+                            HWND hPrev = GetWindow(hWnd, GW_HWNDPREV);
+                            if (hPrev == hTaskbar) {
+                                needZOrderUpdate = true;
+                            }
                         }
                     }
-                }
-                if (needZOrderUpdate) {
-                    s_lastZCheckTime = nowTicks;
-                    SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
-                                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+                    if (needZOrderUpdate) {
+                        s_lastZCheckTime = nowTicks;
+                        SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
+                                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+                    }
                 }
             }
         }
@@ -2808,7 +3600,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         return DefWindowProc(hWnd, msg, wParam, lParam);
 
     case WM_SIZE:
-        if (wParam == SIZE_MINIMIZED && !g_hiddenForFullscreen) {
+        if (wParam == SIZE_MINIMIZED && !g_hiddenForFullscreen && !g_hiddenForTaskbar) {
             ShowWindow(hWnd, SW_RESTORE);
             return 0;
         }
@@ -2817,16 +3609,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     // ── Prevent Windows / Explorer / Show Desktop / Aero Peek from hiding us ──
     case WM_SHOWWINDOW:
         if (wParam == FALSE) {
-            if (!g_hiddenForFullscreen) {
+            if (!g_hiddenForFullscreen && !g_hiddenForTaskbar) {
                 PostMessage(hWnd, WM_USER + 99, 0, 0);
-                return 0;  // Stay visible unless explicitly hidden for fullscreen
+                return 0;  // Stay visible unless explicitly hidden for fullscreen or taskbar
             }
         }
         return DefWindowProc(hWnd, msg, wParam, lParam);
 
     case WM_WINDOWPOSCHANGING: {
         WINDOWPOS* wp = (WINDOWPOS*)lParam;
-        if (wp && !g_hiddenForFullscreen) {
+        if (wp && !g_hiddenForFullscreen && !g_hiddenForTaskbar) {
             wp->flags &= ~SWP_HIDEWINDOW;
             // Prevent Explorer from moving window to iconic off-screen (-32000, -32000)
             if (wp->x <= -30000 || wp->y <= -30000) {
@@ -2839,14 +3631,26 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_USER + 99:
-        if (!g_hiddenForFullscreen) {
+        if (!g_hiddenForFullscreen && !g_hiddenForTaskbar) {
             if (IsIconic(hWnd)) ShowWindow(hWnd, SW_RESTORE);
             ShowWindow(hWnd, SW_SHOWNOACTIVATE);
-            SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+            if (g_setupMode || g_isOnTaskbar) {
+                SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
+                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+            } else {
+                HWND hDesktop = GetDesktopHostWindow();
+                if (hDesktop && (HWND)GetWindowLongPtr(hWnd, GWLP_HWNDPARENT) != hDesktop) {
+                    SetWindowLongPtr(hWnd, GWLP_HWNDPARENT, (LONG_PTR)hDesktop);
+                }
+                SetWindowPos(hWnd, HWND_BOTTOM, 0, 0, 0, 0,
+                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+            }
             RenderWidget(hWnd);
         }
         break;
+
+    case WM_MOUSEACTIVATE:
+        return MA_NOACTIVATE;
 
     case WM_LBUTTONDOWN:
         if (g_setupMode) {
@@ -2887,11 +3691,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             ReleaseCapture();
             UpdateWidgetMode();
             SaveConfig();
-            if (!g_hasDragged) {
-                if (GetTickCount() - g_lastCalCloseTime > 250) {
-                    ToggleCalendar(hWnd);
-                }
-            }
         }
         break;
 
@@ -2919,15 +3718,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_UPDATE_AVAILABLE: {
         wchar_t msg[320];
         swprintf(msg, 320,
-            L"Version %ls is available!\n\n"
-            L"Click Yes to open a terminal window showing the\n"
-            L"download and installation progress.\n\n"
-            L"The widget will close and restart automatically.",
+            L"Version %ls is now available! Click Update Now to download and install. The widget will restart automatically.",
             g_latestVersion);
-        int choice = MessageBoxW(hWnd, msg,
-            L"Tithify \u2014 Update Available",
-            MB_YESNO | MB_ICONINFORMATION);
-        if (choice == IDYES) {
+        int choice = ShowModernDialog(hWnd,
+                                      L"Update Available",
+                                      msg,
+                                      MODERN_DLG_UPDATE,
+                                      L"Update Now",
+                                      L"Later");
+        if (choice == IDYES || choice == IDOK) {
             // Open a visible PowerShell console that handles the full update
             LaunchUpdaterConsole(g_latestVersion);
             // Close the widget so the installer can overwrite Tithify.exe
@@ -2937,13 +3736,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_UPDATE_NOT_FOUND:
-        MessageBoxW(hWnd, L"You are already running the latest version.",
-                    L"Tithify \u2014 Up to Date", MB_OK | MB_ICONINFORMATION);
+        ShowModernDialog(hWnd,
+                         L"You're Up to Date",
+                         L"You are already running the latest version of Tithify.",
+                         MODERN_DLG_SUCCESS,
+                         L"OK");
         break;
 
     case WM_UPDATE_ERROR:
-        MessageBoxW(hWnd, L"Failed to check for updates. Please check your internet connection.",
-                    L"Tithify \u2014 Error", MB_OK | MB_ICONERROR);
+        ShowModernDialog(hWnd,
+                         L"Update Check Failed",
+                         L"Unable to check for updates. Please verify your internet connection and try again.",
+                         MODERN_DLG_ERROR,
+                         L"OK");
         break;
 
 
