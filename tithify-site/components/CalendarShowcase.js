@@ -17,17 +17,17 @@ export default function CalendarShowcase() {
     <section
       id="preview"
       ref={sectionRef}
-      className="relative overflow-hidden bg-white py-28 md:py-36"
+      className="relative overflow-hidden bg-white pt-16 pb-20 md:pt-20 md:pb-28"
     >
-      <div id="calendar" className="absolute -top-20" />
+      <div id="calendar" className="absolute top-0 left-0" />
       <div className="absolute inset-y-0 right-0 w-1/2 bg-gradient-to-l from-sapphire-50/60 to-transparent pointer-events-none" />
 
       <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-6 md:px-10 lg:min-h-[760px] lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] lg:gap-10">
         <motion.div
           initial={prefersReducedMotion ? false : { opacity: 0, x: -24 }}
           whileInView={{ opacity: 1, x: 0 }}
-          viewport={{ once: true, margin: "-100px" }}
-          transition={{ duration: 0.7, ease: easeOut }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.6, ease: easeOut }}
           className="relative z-[1] max-w-xl lg:max-w-[32rem]"
         >
           <span className="inline-flex items-center gap-2 text-sm font-semibold tracking-[0.18em] uppercase text-sapphire-600">

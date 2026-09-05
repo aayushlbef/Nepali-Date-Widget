@@ -66,22 +66,22 @@ const item = {
 
 export default function Features() {
   return (
-    <section id="features" className="relative bg-gradient-to-b from-[#eaf4ff] via-[#f4f8ff] to-white py-28 md:py-36">
+    <section id="features" className="relative bg-gradient-to-b from-[#eaf4ff] via-[#f4f8ff] to-white pt-16 pb-20 md:pt-20 md:pb-28">
       <div className="max-w-7xl mx-auto px-6 md:px-10">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-80px" }}
-          transition={{ duration: 0.6 }}
-          className="max-w-xl mb-16"
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="max-w-xl mb-10 md:mb-12"
         >
           <span className="text-sm font-semibold tracking-[0.18em] uppercase text-sapphire-600">
             Built to disappear
           </span>
-          <h2 className="mt-4 font-display text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight">
+          <h2 className="mt-3 md:mt-4 font-display text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight">
             Every detail, considered.
           </h2>
-          <p className="mt-4 text-lg text-slate-600 leading-relaxed">
+          <p className="mt-3 md:mt-4 text-lg text-slate-600 leading-relaxed">
             The widget does one job — showing your date — and does it so quietly you'll forget it's software at all.
           </p>
         </motion.div>
@@ -90,7 +90,7 @@ export default function Features() {
           variants={container}
           initial="hidden"
           whileInView="show"
-          viewport={{ once: true, margin: "-80px" }}
+          viewport={{ once: true }}
           className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5"
         >
           {FEATURES.map((f) => (

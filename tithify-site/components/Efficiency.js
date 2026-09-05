@@ -29,19 +29,19 @@ function Counter({ from = 0, to, decimals = 0, suffix = "", prefix = "" }) {
 
 export default function Efficiency() {
   return (
-    <section id="efficiency" className="relative bg-gradient-to-b from-[#eaf4ff] via-[#f4f8ff] to-white py-28 md:py-36 overflow-hidden">
+    <section id="efficiency" className="relative bg-gradient-to-b from-[#eaf4ff] via-[#f4f8ff] to-white pt-16 pb-20 md:pt-20 md:pb-28 overflow-hidden">
       <div className="max-w-7xl mx-auto px-6 md:px-10">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-80px" }}
-          transition={{ duration: 0.6 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
           className="max-w-xl"
         >
           <span className="text-sm font-semibold tracking-[0.18em] uppercase text-sapphire-600">
             Ultra-efficient by design
           </span>
-          <h2 className="mt-4 font-display text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight">
+          <h2 className="mt-3 md:mt-4 font-display text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight">
             It checks the clock.
             <br />
             It doesn't watch it.

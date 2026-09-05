@@ -29,18 +29,18 @@ export default function Install() {
   };
 
   return (
-    <section id="install" className="relative bg-gradient-to-b from-[#f4f8ff] to-white py-28 md:py-36 overflow-hidden">
+    <section id="install" className="relative bg-gradient-to-b from-[#f4f8ff] to-white pt-16 pb-20 md:pt-20 md:pb-28 overflow-hidden">
       <div className="max-w-5xl mx-auto px-6 md:px-10 text-center">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-80px" }}
-          transition={{ duration: 0.6 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
         >
           <span className="text-sm font-semibold tracking-[0.18em] uppercase text-sapphire-600">
             Two minutes to install
           </span>
-          <h2 className="mt-4 font-display text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight">
+          <h2 className="mt-3 md:mt-4 font-display text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight">
             Pick your way in.
           </h2>
           <p className="mt-4 text-lg text-slate-600">

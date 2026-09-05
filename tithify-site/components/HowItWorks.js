@@ -28,14 +28,14 @@ const ITEMS = [
 
 export default function HowItWorks() {
   return (
-    <section className="relative bg-gradient-to-b from-white via-[#f4f8ff] to-[#eaf4ff] py-28 md:py-36">
+    <section className="relative bg-gradient-to-b from-white via-[#f4f8ff] to-[#eaf4ff] pt-16 pb-20 md:pt-20 md:pb-28">
       <div className="max-w-7xl mx-auto px-6 md:px-10 grid lg:grid-cols-2 gap-16 items-start">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-80px" }}
-          transition={{ duration: 0.6 }}
-          className="lg:sticky lg:top-32"
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="lg:sticky lg:top-24"
         >
           <span className="text-sm font-semibold tracking-[0.18em] uppercase text-sapphire-600">
             Under the hood
